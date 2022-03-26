@@ -20,7 +20,7 @@ Code Challenge - Electron
    ----- echo ettett>lpt1                 //envia arquvi para impressao
 </p>
 
-
+<p>ao installar seja como admin</p>
 <p>npm install && npm start</p>
 <p align="center">
   <a href="https://github.com/Rocketseat/youtube-challenge-electron-tray/graphs/contributors">
