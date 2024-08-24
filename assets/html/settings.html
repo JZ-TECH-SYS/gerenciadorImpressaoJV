@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Configurações</title>
+    <link rel="stylesheet" href="./../css/bootstrap5.0.2.min.css">
+</head>
+<body>
+    <div class="container mt-4">
+        <label for="comPort" class="form-label mt-2">Digite a porta COM(Porta da Balança):</label>
+        <input type="text" class="form-control" id="comPort">
+
+        <label for="zebra" class="form-label mt-2">Digite o nome da Impressora de Etiqueta:</label>
+        <input type="text" class="form-control" id="zebra">
+
+        <label for="api" class="form-label mt-2">Digite Link API:</label>
+        <input type="text" class="form-control" id="api">
+    
+        <button class="btn btn-primary mt-2" onclick="saveSettings()">Salvar</button>
+    </div>
+    
+    <script src="./../js/bootstrap5.0.2.js"></script>
+    <script>
+        
+        if (window.api.getStore('porta_balanca')) {
+            document.getElementById('comPort').value = window.api.getStore('porta_balanca');
+        }
+
+        if (window.api.getStore('zebra')) {
+            document.getElementById('zebra').value = window.api.getStore('zebra');
+        }
+
+        if (window.api.getStore('api')) {
+            document.getElementById('api').value = window.api.getStore('api');
+        }
+       
+        function validateCOMPort(port) {
+            console.log(port);
+            // A expressão regular verifica se a string começa com "COM" seguido de um ou mais dígitos.
+            return /^COM\d+$/.test(port);
+        }
+
+        function validateValue(value) {
+            // Tentamos converter o valor para um float. 
+            // Se for NaN, então o valor inserido não é um número válido.
+            return !isNaN(parseFloat(value));
+        }
+
+        function saveSettings() {
+            const comPort = document.getElementById('comPort').value;
+            const zebra = document.getElementById('zebra').value;
+            const api = document.getElementById('api').value;
+            
+            if (!validateCOMPort(comPort)) {
+                alert('Por favor, insira uma porta COM válida (ex: COM1, COM2, ...)');
+                return;
+            }
+
+            window.api.send("settings-saved", { comPort, zebra , api });
+            alert('Salvo com sucesso!');
+            window.close(); 
+        }
+    </script>
+</body>
+</html>
