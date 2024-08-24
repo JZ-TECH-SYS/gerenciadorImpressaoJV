@@ -3,7 +3,7 @@
   <img src="build/icon.png" alt="GoBarber" width="90">
 <br>
 <br>
-Code Challenge - Electron
+ jv impress V2
 </h1>
 
 <p align="center">In this code challenge we developed an app that provides an easy way to open favorite projects on VSCode.</p>
