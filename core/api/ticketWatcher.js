@@ -1,6 +1,6 @@
 // core/api/ticketWatcher.js
 const consultarTickets = require('./consultarTickets');
-const imprimirHTML     = require('../impressora/imprimirHtml').default;
+const imprimirHTML     = require('../impressora/imprimirHtml');
 const Store            = require('electron-store');
 const { log }          = require('../utils/logger');
 

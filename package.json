@@ -1,9 +1,8 @@
 {
   "name": "jv-printer",
-  "description": "Gerenciador de impressao clickexpress",
+  "description": "Gerenciador de impressão ClickExpress",
   "version": "2.0.0",
   "main": "main.js",
-  "repository": "",
   "author": "joaosn",
   "license": "MIT",
   "scripts": {
@@ -11,10 +10,9 @@
     "dev": "nodemon --exec electron .",
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
-    "dist:all": "npm-run-all -p dist:*",
-    "dist:mac": "electron-builder --mac",
-    "dist:windows": "electron-builder --windows",
-    "dist:linux": "electron-builder --linux",
+    "dist:all": "npm run dist:win32 && npm run dist:win64",
+    "dist:win32": "electron-builder --win --ia32 --config.directories.output=dist/win32",
+    "dist:win64": "electron-builder --win --x64 --config.directories.output=dist/win64",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
@@ -30,22 +28,24 @@
     "nodemon": "^3.1.10"
   },
   "build": {
-    "appId": "com.rocketseat.codetray",
+    "appId": "com.jvtech.printer",
     "productName": "jv-printer",
-    "mac": {
-      "category": "public.app-category.developer-tools"
+    "directories": {
+      "output": "dist"
     },
-    "linux": {
-      "category": "Utility",
-      "icon": "icon.png",
+    "win": {
       "target": [
-        "deb",
-        "snap",
-        "rpm"
-      ]
+        "nsis"
+      ],
+      "icon": "icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "JV Printer"
     }
-  },
-  "overrides": {
-    "cross-spawn": "7.0.5"
   }
 }
