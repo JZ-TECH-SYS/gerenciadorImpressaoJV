@@ -14,6 +14,7 @@ const Store                = require('electron-store');
 const { startWatcher, stopWatcher } = require('./core/api/ticketWatcher');
 const { createSettings }            = require('./core/windows/settings');
 const { openLogViewer }             = require('./core/windows/logViewer');
+const { abrirPastaLogs, criarArquivoAjuda } = require('./core/utils/logger');
 const listarImpressoras             = require('./core/impressora/listarImpressoras');
 
 /* ---------- store ---------- */
@@ -45,6 +46,8 @@ function buildMenuTemplate() {
       click: togglePrint
     },
     { label: '📄 Ver Logs', click: openLogViewer },
+    { label: '📁 Abrir Pasta de Logs', click: abrirPastaLogs },
+    { label: '❓ Ajuda (Problemas)', click: abrirAjuda },
     { type: 'separator' },
     { label: 'Sair', role: 'quit' }
   ];
@@ -66,6 +69,18 @@ function togglePrint() {
   }
 
   rebuildTrayMenu();
+}
+
+function abrirAjuda() {
+  const { shell } = require('electron');
+  const path = require('path');
+  
+  // Cria o arquivo de ajuda primeiro
+  criarArquivoAjuda();
+  
+  // Abre o arquivo
+  const caminhoAjuda = path.join(app.getAppPath(), 'SOLUCAO_PROBLEMAS.txt');
+  shell.openPath(caminhoAjuda);
 }
 
 /* =========================================================

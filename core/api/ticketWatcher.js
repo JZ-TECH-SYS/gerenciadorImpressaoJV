@@ -20,8 +20,12 @@ async function startWatcher() {
 
       const printerName = store.get('printer');   // string simples
       for (const texto of tickets) {
-        await imprimirHTML({ msg: texto, printerName });
-        log('✅ Ticket impresso');
+        try {
+          const resultado = await imprimirHTML({ msg: texto, printerName });
+          log(`✅ Ticket impresso com sucesso | JobID: ${resultado.jobId}`);
+        } catch (error) {
+          log(`❌ Erro ao imprimir ticket: ${error.message}`);
+        }
       }
       await delay(500);
     } catch (e) {
