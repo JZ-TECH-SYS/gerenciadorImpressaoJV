@@ -73,14 +73,15 @@ function togglePrint() {
 
 function abrirAjuda() {
   const { shell } = require('electron');
-  const path = require('path');
   
-  // Cria o arquivo de ajuda primeiro
-  criarArquivoAjuda();
+  // Cria o arquivo de ajuda e obtém o caminho
+  const caminhoAjuda = criarArquivoAjuda();
   
-  // Abre o arquivo
-  const caminhoAjuda = path.join(app.getAppPath(), 'SOLUCAO_PROBLEMAS.txt');
-  shell.openPath(caminhoAjuda);
+  if (caminhoAjuda) {
+    shell.openPath(caminhoAjuda);
+  } else {
+    toast('Erro ao abrir arquivo de ajuda');
+  }
 }
 
 /* =========================================================
