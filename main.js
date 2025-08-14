@@ -1,59 +1,145 @@
-const { app, screen ,Menu, Tray, BrowserWindow, Notification } = require('electron');
-const { ipcMain } = require('electron');
-const path = require('path');
-const fs = require('fs');
-const Store = require('electron-store');
-const store = new Store();
+/* ─── Main process ─────────────────────────────────────────────────── */
+const {
+  app,
+  BrowserWindow,
+  Tray,
+  Menu,
+  Notification,
+  ipcMain
+} = require('electron');
 
-let settingsWindow;
-let mainTray;
+const path                 = require('path');
+const Store                = require('electron-store');
 
-function createSettingsWindow() {
-    settingsWindow = new BrowserWindow({
-        width: 500,
-        height: 300,
-        webPreferences: {
-            nodeIntegration: true,
-            preload: path.join(__dirname, 'src', 'loads','preload.js')
-        }
-    });
-    settingsWindow.loadFile(path.resolve(__dirname, 'assets', 'html', 'settings.html'));
+const { startWatcher, stopWatcher } = require('./core/api/ticketWatcher');
+const { createSettings }            = require('./core/windows/settings');
+const { openLogViewer }             = require('./core/windows/logViewer');
+const { abrirPastaLogs, criarArquivoAjuda } = require('./core/utils/logger');
+const listarImpressoras             = require('./core/impressora/listarImpressoras');
 
-    settingsWindow.on('close', (event) => {
-        console.log('Evento de fechamento acionado para settingsWindow');
-    });
-    settingsWindow.on('closed', () => {
-        console.log('Evento de janela fechada acionado para settingsWindow');
-    });
+/* ---------- store ---------- */
+const store = new Store({
+  defaults: { apiUrl: '', idempresa: '', printer: '' }
+});
+
+/* ---------- state ---------- */
+let tray        = null;
+let printing    = false; // será alterado depois
+let menu        = null;
+
+/* =========================================================
+   1. Helpers
+========================================================= */
+function toast(msg) {
+  new Notification({ title: 'JV-Printer', body: msg }).show();
 }
 
-process.on('uncaughtException', (error) => {
-    new Notification({
-        title: 'Erro',
-        body: 'Erro não tratado:'+ error.message
-    }).show();
+function hasValidConfig() {
+  return !!store.get('apiUrl') && !!store.get('printer');
+}
 
-    console.error('Erro não tratado:', error.message);
+function buildMenuTemplate() {
+  return [
+    { label: 'Configurações', click: createSettings },
+    {
+      label: printing ? '⛔ Parar impressão' : '▶️ Iniciar impressão',
+      click: togglePrint
+    },
+    { label: '📄 Ver Logs', click: openLogViewer },
+    { label: '📁 Abrir Pasta de Logs', click: abrirPastaLogs },
+    { label: '❓ Ajuda (Problemas)', click: abrirAjuda },
+    { type: 'separator' },
+    { label: 'Sair', role: 'quit' }
+  ];
+}
+
+function rebuildTrayMenu() {
+  tray.setContextMenu(Menu.buildFromTemplate(buildMenuTemplate()));
+}
+
+function togglePrint() {
+  printing = !printing;
+
+  if (printing) {
+    startWatcher();
+    toast('Serviço de impressão iniciado');
+  } else {
+    stopWatcher();
+    toast('Serviço de impressão parado');
+  }
+
+  rebuildTrayMenu();
+}
+
+function abrirAjuda() {
+  const { shell } = require('electron');
+  
+  // Cria o arquivo de ajuda e obtém o caminho
+  const caminhoAjuda = criarArquivoAjuda();
+  
+  if (caminhoAjuda) {
+    shell.openPath(caminhoAjuda);
+  } else {
+    toast('Erro ao abrir arquivo de ajuda');
+  }
+}
+
+/* =========================================================
+   2. App ready
+========================================================= */
+app.whenReady().then(() => {
+  tray = new Tray(path.join(__dirname, 'assets/icon.png'));
+  tray.setToolTip('JV-Printer');
+
+  // Cria menu inicial (printing ainda false)
+  rebuildTrayMenu();
+
+  // Abre settings se ainda falta config
+  if (!hasValidConfig()) {
+    createSettings();
+  } else {
+    // Config OK → inicia automaticamente
+    printing = true;
+    startWatcher();
+    toast('Serviço de impressão iniciado');
+    rebuildTrayMenu();
+  }
+});
+
+/* =========================================================
+   3. Janelas nunca fecham o app (fica só no tray)
+========================================================= */
+app.on('window-all-closed', e => e.preventDefault());
+
+/* =========================================================
+   4. IPC handlers
+========================================================= */
+ipcMain.handle('settings:get', (_e, key) => store.get(key));
+
+ipcMain.handle('printers:list', async () => {
+  try {
+    return await listarImpressoras();
+  } catch {
+    return [];
+  }
+});
+
+/* Quando o usuário salva as configurações */
+ipcMain.on('settings-saved', (_e, { idempresa, apiUrl, apiToken, printer }) => {
+  store.set({ idempresa, apiUrl, apiToken, printer });
+
+  // Se já está tudo configurado e o serviço ainda não rodava → iniciar
+  if (!printing && hasValidConfig()) {
+    printing = true;
+    startWatcher();
+    toast('Serviço de impressão iniciado');
+    rebuildTrayMenu();
+  }
 });
 
 
-app.on('ready', () => {
-    mainTray = new Tray(path.resolve(__dirname, 'assets', 'iconTemplate@2x.png'));
-    const contextMenu = Menu.buildFromTemplate([
-        {
-            label: 'Configurações',
-            click: createSettingsWindow
-        },
-        {
-          type: 'normal',
-          label: 'Fechar',
-          role: 'quit',
-        }
-        
-    ]);
-    mainTray.setContextMenu(contextMenu);
-});
-
-app.on('window-all-closed', (e) => {
-    e.preventDefault();
-});
+console.table(
+  BrowserWindow.getAllWindows()[0]       // ou crie uma win fantasma
+    ?.webContents.getPrinters()
+    .map(p => ({ deviceName: p.name }))
+);
