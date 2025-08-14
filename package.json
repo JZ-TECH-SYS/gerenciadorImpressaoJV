@@ -1,51 +1,51 @@
 {
   "name": "jv-printer",
-  "description": "Open VSCode projects from tray menu.",
+  "description": "Gerenciador de impressão ClickExpress",
   "version": "2.0.0",
   "main": "main.js",
-  "repository": "https://github.com/diego3g/youtube-challenge-electron-tray",
-  "author": "Rocketseat <oi@rocketseat.com.br>",
+  "author": "joaosn",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
     "dev": "nodemon --exec electron .",
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
-    "dist:all": "npm-run-all -p dist:*",
-    "dist:mac": "electron-builder --mac",
-    "dist:windows": "electron-builder --windows",
-    "dist:linux": "electron-builder --linux",
+    "dist:all": "npm run dist:win32 && npm run dist:win64",
+    "dist:win32": "electron-builder --win --ia32 --config.directories.output=dist/win32",
+    "dist:win64": "electron-builder --win --x64 --config.directories.output=dist/win64",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
-    "cloudsean-pdf-to-printer": "^1.5.9",
     "electron-store": "^4.0.0",
-    "fix-path": "^2.1.0",
-    "node-pdf-printer": "^1.1.7",
-    "npm-run-all": "^4.1.5"
+    "fix-path": "^2.1.0"
   },
   "devDependencies": {
-    "electron": "^5.0.7",
-    "electron-builder": "^21.0.15",
+    "electron": "*",
+    "electron-builder": "^24.11.0",
     "eslint": "^5.16.0",
     "eslint-config-airbnb-base": "^13.2.0",
     "eslint-plugin-import": "^2.18.0",
-    "nodemon": "^1.19.1"
+    "nodemon": "^3.1.10"
   },
   "build": {
-    "appId": "com.rocketseat.codetray",
+    "appId": "com.jvtech.printer",
     "productName": "jv-printer",
-    "mac": {
-      "category": "public.app-category.developer-tools"
+    "directories": {
+      "output": "dist"
     },
-    "linux": {
-      "category": "Utility",
-      "icon": "icon.png",
+    "win": {
       "target": [
-        "deb",
-        "snap",
-        "rpm"
-      ]
+        "nsis"
+      ],
+      "icon": "icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "JV Printer"
     }
   }
 }
