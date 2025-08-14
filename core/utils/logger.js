@@ -76,8 +76,9 @@ function getCaminhoLogs() {
 
 function criarArquivoAjuda() {
   const { app } = require('electron');
-  const appPath = app ? app.getAppPath() : process.cwd();
-  const caminhoAjuda = path.join(appPath, 'SOLUCAO_PROBLEMAS.txt');
+  
+  // No app buildado, salva na pasta dos logs (que é acessível)
+  const caminhoAjuda = path.join(TMP_BASE, 'SOLUCAO_PROBLEMAS.txt');
   
   const conteudoAjuda = `================================================================================
     GUIA DE SOLUCAO DE PROBLEMAS - Sistema de Impressao JV
@@ -132,8 +133,10 @@ Data de criacao: ${new Date().toLocaleString('pt-BR')}
   try {
     fs.writeFileSync(caminhoAjuda, conteudoAjuda, 'utf8');
     log('📄 Arquivo de ajuda criado: ' + caminhoAjuda);
+    return caminhoAjuda;
   } catch (error) {
     log('❌ Erro ao criar arquivo de ajuda: ' + error.message);
+    return null;
   }
 }
 
