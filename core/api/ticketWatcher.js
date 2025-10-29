@@ -18,11 +18,28 @@ async function startWatcher() {
       const tickets = await consultarTickets();
       log(`📥 Tickets recebidos: ${tickets.length}`);
 
-      const printerName = store.get('printer');   // string simples
-      for (const texto of tickets) {
+      const impressoraPadrao = store.get('printer'); // Impressora padrão das configurações
+      
+      for (const item of tickets) {
         try {
-          const resultado = await imprimirHTML({ msg: texto, printerName });
-          log(`✅ Ticket impresso com sucesso | JobID: ${resultado.jobId}`);
+          // Cada item agora é { texto: "...", impressora: "nome" ou null }
+          const textoParaImprimir = item.texto || item; // Compatibilidade com formato antigo
+          const impressoraEspecifica = item.impressora; // null ou nome da impressora
+
+          log(`Impressão do ticket iniciado. impressora: ${impressoraEspecifica || 'padrão'}`);
+          
+          // Se vier impressora específica, usa ela; senão usa a padrão
+          const printerName = impressoraEspecifica || impressoraPadrao;
+          
+          if (!printerName) {
+            log(`⚠️ Nenhuma impressora definida para este ticket`);
+            continue;
+          }
+          
+          log(`🖨️ Imprimindo na: ${printerName} ${impressoraEspecifica ? '(específica)' : '(padrão)'}`);
+          
+          const resultado = await imprimirHTML({ msg: textoParaImprimir, printerName });
+          log(`✅ Ticket impresso com sucesso | Impressora: ${printerName} | JobID: ${resultado.jobId}`);
         } catch (error) {
           log(`❌ Erro ao imprimir ticket: ${error.message}`);
         }
