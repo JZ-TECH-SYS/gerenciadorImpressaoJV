@@ -20,7 +20,12 @@ function createSettings() {
       preload: path.join(__dirname, "../../src/loads/preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true 
+      // Importante: desabilitar sandbox aqui para permitir que o preload
+      // acesse os módulos do Electron (contextBridge/ipcRenderer) e exponha
+      // window.api para a página de configurações. A janela de teste de
+      // impressão já funcionava sem sandbox, e foi após ativá-lo aqui que
+      // a tela deixou de carregar os dados/impressoras.
+      sandbox: false
     }
   });
 
