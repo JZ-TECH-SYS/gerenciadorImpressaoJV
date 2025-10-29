@@ -241,15 +241,20 @@ Total: R$ 0,00
 
         // Carregar impressoras
         async function loadPrinters() {
+            console.log('[FRONTEND] Carregando impressoras...');
             const printers = await window.testPrint.getPrinters();
-            printerSelect.innerHTML = '';
+            console.log('[FRONTEND] Impressoras recebidas:', printers);
             
+            printerSelect.innerHTML = '';
             printerCount.textContent = printers.length;
             
             if (printers.length === 0) {
                 printerSelect.innerHTML = '<option value="">❌ Nenhuma impressora encontrada</option>';
-                printerCount.parentElement.querySelector('.badge').className = 'badge badge-danger';
-                printerCount.parentElement.querySelector('.badge').textContent = 'Erro';
+                const badge = document.querySelector('.stat-card .badge');
+                if (badge) {
+                    badge.className = 'badge bg-danger';
+                    badge.textContent = 'Erro';
+                }
                 return;
             }
 
@@ -262,6 +267,7 @@ Total: R$ 0,00
 
             // Selecionar impressora padrão
             const defaultPrinter = await window.testPrint.getDefaultPrinter();
+            console.log('[FRONTEND] Impressora padrão:', defaultPrinter);
             if (defaultPrinter) {
                 printerSelect.value = defaultPrinter;
             }

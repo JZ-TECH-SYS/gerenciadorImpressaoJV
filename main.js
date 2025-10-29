@@ -41,7 +41,7 @@ function hasValidConfig() {
 
 function buildMenuTemplate() {
   return [
-    { label: 'Configurações', click: createSettings },
+    { label: '⚙️ Configurações', click: createSettings },
     {
       label: printing ? '⛔ Parar impressão' : '▶️ Iniciar impressão',
       click: togglePrint
@@ -52,7 +52,7 @@ function buildMenuTemplate() {
     { label: '📁 Abrir Pasta de Logs', click: abrirPastaLogs },
     { label: '❓ Ajuda (Problemas)', click: abrirAjuda },
     { type: 'separator' },
-    { label: 'Sair', role: 'quit' }
+    { label: '🚪 Sair', role: 'quit' }
   ];
 }
 
@@ -145,9 +145,3 @@ ipcMain.on('settings-saved', (_e, { idempresa, apiUrl, apiToken, printer }) => {
   }
 });
 
-
-console.table(
-  BrowserWindow.getAllWindows()[0]       // ou crie uma win fantasma
-    ?.webContents.getPrinters()
-    .map(p => ({ deviceName: p.name }))
-);
