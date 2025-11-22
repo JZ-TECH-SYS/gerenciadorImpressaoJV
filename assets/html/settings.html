@@ -87,23 +87,36 @@
     <script src="../js/bootstrap5.0.2.js"></script>
     <script>
       (async () => {
+        try {
+          const selected = (await window.api.getStore('printer')) || '';
+          const raw = await window.api.getPrinters();
+          const printers = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.data) ? raw.data : []);
 
-        const selected = (await window.api.getStore('printer')) || '';
-        const lista = await window.api.getPrinters();
-        const select = document.getElementById('printer');
-        lista.data.forEach((nome) => {
-          const opt = document.createElement('option');
-          opt.value = nome;
-          opt.textContent = nome;
-          if (nome === selected) opt.selected = true;
-          select.appendChild(opt);
-        });
+          const select = document.getElementById('printer');
+          // Reset e placeholder
+          select.innerHTML = '<option value="">Selecione a impressora</option>';
 
-       
-        document.getElementById('idempresa').value = await window.api.getStore('idempresa') ?? '';
-        document.getElementById('api').value = await window.api.getStore('apiUrl')?? '';
-        document.getElementById('token').value = await window.api.getStore('apiToken')?? '';
+          if (!printers.length) {
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = 'Nenhuma impressora encontrada';
+            select.appendChild(opt);
+          } else {
+            printers.forEach((nome) => {
+              const opt = document.createElement('option');
+              opt.value = nome;
+              opt.textContent = nome;
+              if (nome === selected) opt.selected = true;
+              select.appendChild(opt);
+            });
+          }
 
+          document.getElementById('idempresa').value = (await window.api.getStore('idempresa')) ?? '';
+          document.getElementById('api').value = (await window.api.getStore('apiUrl')) ?? '';
+          document.getElementById('token').value = (await window.api.getStore('apiToken')) ?? '';
+        } catch (e) {
+          alert('Erro ao carregar configurações: ' + (e?.message || e));
+        }
       })();
 
       cfg.onsubmit = (e) => {

@@ -14,6 +14,7 @@ const Store                = require('electron-store');
 const { startWatcher, stopWatcher } = require('./core/api/ticketWatcher');
 const { createSettings }            = require('./core/windows/settings');
 const { openLogViewer }             = require('./core/windows/logViewer');
+const { createTestPrint }           = require('./core/windows/testPrint');
 const { abrirPastaLogs, criarArquivoAjuda } = require('./core/utils/logger');
 const listarImpressoras             = require('./core/impressora/listarImpressoras');
 
@@ -40,16 +41,18 @@ function hasValidConfig() {
 
 function buildMenuTemplate() {
   return [
-    { label: 'Configurações', click: createSettings },
+    { label: '⚙️ Configurações', click: createSettings },
     {
       label: printing ? '⛔ Parar impressão' : '▶️ Iniciar impressão',
       click: togglePrint
     },
+    { type: 'separator' },
+    { label: '🖨️ Testar Impressão', click: createTestPrint },
     { label: '📄 Ver Logs', click: openLogViewer },
     { label: '📁 Abrir Pasta de Logs', click: abrirPastaLogs },
     { label: '❓ Ajuda (Problemas)', click: abrirAjuda },
     { type: 'separator' },
-    { label: 'Sair', role: 'quit' }
+    { label: '🚪 Sair', role: 'quit' }
   ];
 }
 
@@ -118,7 +121,12 @@ ipcMain.handle('settings:get', (_e, key) => store.get(key));
 
 ipcMain.handle('printers:list', async () => {
   try {
-    return await listarImpressoras();
+    const result = await listarImpressoras();
+    // listarImpressoras retorna { status, acao, data: [] }
+    if (result.status === 'success' && Array.isArray(result.data)) {
+      return result.data;
+    }
+    return [];
   } catch {
     return [];
   }
@@ -137,9 +145,3 @@ ipcMain.on('settings-saved', (_e, { idempresa, apiUrl, apiToken, printer }) => {
   }
 });
 
-
-console.table(
-  BrowserWindow.getAllWindows()[0]       // ou crie uma win fantasma
-    ?.webContents.getPrinters()
-    .map(p => ({ deviceName: p.name }))
-);
