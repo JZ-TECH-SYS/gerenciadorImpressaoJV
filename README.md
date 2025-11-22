@@ -192,7 +192,41 @@ Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para ma
 
 ---
 
-## 👨‍💻 **Desenvolvido por**
+## 🚀 Atualizações Automáticas & CI/CD
+
+Projeto configurado com `electron-builder` + `electron-updater` usando **GitHub Releases** via **GitHub Actions**.
+
+### 🔄 Fluxo
+1. Atualize `version` em `package.json`.
+2. `git commit -am "bump: v2.0.1"`
+3. `git push origin main`
+4. Workflow:
+  - instala deps
+  - roda `npm run dist`
+  - publica release com `.exe` + `latest.yml`
+5. App chama `autoUpdater.checkForUpdatesAndNotify()` ao iniciar.
+6. Download concluído → instala (evento `update-downloaded`).
+
+### 🛠️ Local
+```
+npm run dist
+```
+Gera instalador e `latest.yml` em `dist`.
+
+### ✅ Benefícios
+* Sem acesso remoto a clientes
+* Atualização silenciosa
+* Histórico de versões organizado
+
+### 🔐 Token
+Usa `secrets.GITHUB_TOKEN` (automático) para publicar.
+
+### ♻️ Versão Automática
+Cada push em `main` (sem `[skip ci]`) incrementa o patch da versão e cria uma tag `vX.Y.Z` automaticamente.
+
+---
+
+## �👨‍💻 **Desenvolvido por**
 
 **JZ-TECH-SYS**  
 Sistema de Gerenciamento de Impressão JV  

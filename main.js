@@ -7,6 +7,7 @@ const {
   Notification,
   ipcMain
 } = require('electron');
+const { autoUpdater } = require('electron-updater');
 
 const path                 = require('path');
 const Store                = require('electron-store');
@@ -107,6 +108,21 @@ app.whenReady().then(() => {
     toast('Serviço de impressão iniciado');
     rebuildTrayMenu();
   }
+
+  // Auto update: verifica e aplica (silencioso)
+  try {
+    autoUpdater.checkForUpdatesAndNotify();
+  } catch (e) {
+    // Falha silenciosa
+    console.warn('Falha ao checar atualizações', e.message);
+  }
+});
+
+// Opcional: instalar automaticamente após download
+autoUpdater.on('update-downloaded', () => {
+  try {
+    autoUpdater.quitAndInstall();
+  } catch {}
 });
 
 /* =========================================================

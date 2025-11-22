@@ -46,6 +46,13 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "JV Printer"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "JZ-TECH-SYS",
+        "repo": "gerenciadorImpressaoJV"
+      }
+    ]
   }
 }
