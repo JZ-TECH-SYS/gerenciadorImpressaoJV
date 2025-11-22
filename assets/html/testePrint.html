@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste de Impressão</title>
+    <link rel="stylesheet" href="../css/bootstrap5.0.2.min.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .main-card {
+            max-width: 800px;
+            margin: 0 auto;
+            animation: slideUp 0.3s ease-out;
+        }
+
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .header-gradient {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-gradient {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            color: white;
+        }
+
+        .btn-gradient:hover {
+            background: linear-gradient(135deg, #5568d3 0%, #653a8b 100%);
+            color: white;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .preview-box {
+            background: #f8f9fa;
+            border: 2px dashed #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            min-height: 200px;
+            max-height: 350px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border: 2px solid #dee2e6;
+        }
+
+        .loader {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 0.6s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container py-4">
+        <div class="main-card">
+            <div class="card shadow-lg">
+                <!-- Header -->
+                <div class="card-header header-gradient text-center py-3">
+                    <h4 class="mb-1">
+                        <i class="bi bi-printer"></i> 🖨️ Teste de Impressão
+                    </h4>
+                    <small class="opacity-75">Configure e teste suas impressoras rapidamente</small>
+                </div>
+
+                <!-- Body -->
+                <div class="card-body p-4">
+                    <!-- Stats -->
+                    <div class="row g-3 mb-4">
+                        <div class="col-6">
+                            <div class="card stat-card text-center p-3">
+                                <small class="text-muted text-uppercase fw-bold">Impressoras</small>
+                                <h5 class="mb-0 mt-1 fw-bold" id="printerCount">0</h5>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="card stat-card text-center p-3">
+                                <small class="text-muted text-uppercase fw-bold">Status</small>
+                                <h5 class="mb-0 mt-1">
+                                    <span class="badge bg-success">Pronto</span>
+                                </h5>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Form -->
+                    <div class="mb-3">
+                        <label for="printerSelect" class="form-label fw-bold">
+                            🖨️ Selecione a Impressora
+                        </label>
+                        <select class="form-select" id="printerSelect">
+                            <option value="">Carregando impressoras...</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="testType" class="form-label fw-bold">
+                            📄 Tipo de Teste
+                        </label>
+                        <select class="form-select" id="testType">
+                            <option value="simple">✅ Teste Simples - Verificação Rápida</option>
+                            <option value="ticket">🎫 Ticket de Pedido - Formato Real</option>
+                            <option value="custom">✏️ Personalizado - HTML Customizado</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3" id="customTextArea" style="display: none;">
+                        <label for="customContent" class="form-label fw-bold">
+                            💻 Conteúdo HTML Personalizado
+                        </label>
+                        <textarea class="form-control" id="customContent" rows="6" 
+                            placeholder="Cole seu código HTML aqui..."></textarea>
+                    </div>
+
+                    <!-- Preview -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">
+                            👁️ Pré-visualização
+                        </label>
+                        <div class="preview-box" id="preview">Aguardando seleção...</div>
+                    </div>
+
+                    <!-- Button -->
+                    <button class="btn btn-gradient btn-lg w-100 fw-bold" id="btnPrint">
+                        <span id="btnText">🖨️ IMPRIMIR TESTE</span>
+                    </button>
+
+                    <!-- Alert -->
+                    <div id="resultado" class="mt-3" style="display: none;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const printerSelect = document.getElementById('printerSelect');
+        const testType = document.getElementById('testType');
+        const preview = document.getElementById('preview');
+        const btnPrint = document.getElementById('btnPrint');
+        const btnText = document.getElementById('btnText');
+        const resultado = document.getElementById('resultado');
+        const customTextArea = document.getElementById('customTextArea');
+        const customContent = document.getElementById('customContent');
+        const printerCount = document.getElementById('printerCount');
+
+        // Templates de teste
+        const templates = {
+            simple: `        <style>
+            @page {
+                size: 80mm auto;
+                margin: 0;
+            }
+            body {
+                font-family: monospace;
+                font-size: 12pt;
+                margin: 10px;
+                padding: 0;
+            }
+        </style>
+        <div style="text-align: center;">
+            <h2>TESTE DE IMPRESSÃO</h2>
+            <p>Data: ${new Date().toLocaleString('pt-BR')}</p>
+            <p>─────────────────────</p>
+            <p>✅ Impressora funcionando!</p>
+            <p>─────────────────────</p>
+        </div>`,
+            
+            ticket: `        <style>
+            @page {
+                size: 200mm auto;
+                margin: 0;
+                padding: 0;
+            }
+            body {
+                font-family: monospace;
+                font-size: 12pt;
+                margin: 0 0 0 0;
+                padding: 0;
+                white-space: pre;
+                line-height: 1.05;
+                font-weight: bold;
+            }
+            .titulo {
+                text-align: center;
+                font-weight: bold;
+                font-size: 12pt;
+                margin: 6px 0;
+            }
+            .linha {
+                border-bottom: 2px dashed #000;
+                margin: 0px 0;
+            }
+            .wrap {
+                width: 100%;
+            }
+        </style>
+<div class="wrap">
+<div class="titulo">TESTE DE PEDIDO</div>
+Pedido de(a) João Silva
+
+Tipo: Teste
+Mesa: 01
+
+N Pedido: 99999
+Data: ${new Date().toLocaleString('pt-BR')}
+__________________________________________
+
+3 - Produto Teste 1
+Obs: Item de teste
+
+2 - Produto Teste 2
+__________________________________________
+
+Total: R$ 0,00
+</div>`
+        };
+
+        // Carregar impressoras
+        async function loadPrinters() {
+            console.log('[FRONTEND] Carregando impressoras...');
+            const printers = await window.testPrint.getPrinters();
+            console.log('[FRONTEND] Impressoras recebidas:', printers);
+            
+            printerSelect.innerHTML = '';
+            printerCount.textContent = printers.length;
+            
+            if (printers.length === 0) {
+                printerSelect.innerHTML = '<option value="">❌ Nenhuma impressora encontrada</option>';
+                const badge = document.querySelector('.stat-card .badge');
+                if (badge) {
+                    badge.className = 'badge bg-danger';
+                    badge.textContent = 'Erro';
+                }
+                return;
+            }
+
+            printers.forEach((p, index) => {
+                const option = document.createElement('option');
+                option.value = p;
+                option.textContent = `${index + 1}. ${p}`;
+                printerSelect.appendChild(option);
+            });
+
+            // Selecionar impressora padrão
+            const defaultPrinter = await window.testPrint.getDefaultPrinter();
+            console.log('[FRONTEND] Impressora padrão:', defaultPrinter);
+            if (defaultPrinter) {
+                printerSelect.value = defaultPrinter;
+            }
+        }
+
+        // Atualizar preview
+        function updatePreview() {
+            const type = testType.value;
+            
+            if (type === 'custom') {
+                customTextArea.style.display = 'block';
+                const content = customContent.value || 'Digite seu HTML personalizado...';
+                preview.textContent = content; // Usa textContent para evitar renderizar HTML
+            } else {
+                customTextArea.style.display = 'none';
+                preview.textContent = templates[type] || 'Selecione um tipo de teste';
+            }
+        }
+
+        // Imprimir
+        async function print() {
+            const printer = printerSelect.value;
+            if (!printer) {
+                showAlert('⚠️ Por favor, selecione uma impressora antes de continuar!', 'warning');
+                return;
+            }
+
+            const type = testType.value;
+            let content = '';
+
+            if (type === 'custom') {
+                content = customContent.value;
+                if (!content.trim()) {
+                    showAlert('⚠️ Digite o conteúdo HTML personalizado antes de imprimir!', 'warning');
+                    return;
+                }
+            } else {
+                content = templates[type];
+            }
+
+            btnPrint.disabled = true;
+            btnText.innerHTML = '<span class="loader"></span> Imprimindo...';
+
+            try {
+                const result = await window.testPrint.print(printer, content);
+                
+                if (result.success) {
+                    showAlert(
+                        `<strong>✅ Impresso com sucesso!</strong><br><br>
+                        <strong>Impressora:</strong> ${printer}<br>
+                        <strong>Job ID:</strong> ${result.jobId}<br>
+                        <strong>Fonte:</strong> ${result.source}`,
+                        'success'
+                    );
+                } else {
+                    showAlert(`<strong>❌ Falha na impressão</strong><br><br>${result.error}`, 'danger');
+                }
+            } catch (error) {
+                showAlert(`<strong>❌ Erro ao imprimir</strong><br><br>${error.message}`, 'danger');
+            } finally {
+                btnPrint.disabled = false;
+                btnText.textContent = '🖨️ Imprimir Teste';
+            }
+        }
+
+        function showAlert(message, type) {
+            const alertClass = type === 'success' ? 'alert-success' : 
+                             type === 'danger' ? 'alert-danger' : 'alert-warning';
+            
+            resultado.style.display = 'block';
+            resultado.className = `alert ${alertClass}`;
+            resultado.innerHTML = message;
+            
+            setTimeout(() => {
+                resultado.style.display = 'none';
+            }, 8000);
+        }
+
+        // Event listeners
+        testType.addEventListener('change', updatePreview);
+        customContent.addEventListener('input', updatePreview);
+        btnPrint.addEventListener('click', print);
+
+        // Init
+        loadPrinters();
+        updatePreview();
+    </script>
+</body>
+</html>
