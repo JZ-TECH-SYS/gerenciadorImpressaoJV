@@ -18,7 +18,6 @@ async function consultarTickets() {
   }
 
   try {
-    log("Consultando tickets na API... " + `${api}cronImpressaoDiretav3/${idempresa}`);
     const res = await fetch(`${api}cronImpressaoDiretav3/${idempresa}`, {
       method: "GET",
       headers: {
