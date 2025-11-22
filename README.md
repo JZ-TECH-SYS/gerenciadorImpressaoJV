@@ -229,7 +229,13 @@ Cada push em `main` (sem `[skip ci]`) incrementa o patch da versão e cria uma t
 ## �👨‍💻 **Desenvolvido por**
 
 **JZ-TECH-SYS**  
-Sistema de Gerenciamento de Impressão JV  
+Sistema de Gerenciamento de Impressão JV 
+
+node scripts/bumpVersion.js
+git add package.json
+git commit -m "release: vX.Y.Z"
+git push origin main
+
 
 ---
 
