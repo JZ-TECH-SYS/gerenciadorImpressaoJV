@@ -1,7 +1,13 @@
+const { app } = require('electron');
+const log = require('electron-log');
 const { info, warn, error } = require('./utils/logger');
 
 function attachAutoUpdaterHandlers(autoUpdater, callbacks = {}) {
   const { toast } = callbacks;
+
+  autoUpdater.logger = log;
+  autoUpdater.logger.transports.file.level = 'info';
+  log.info('AutoUpdater logger configurado');
 
   autoUpdater.on('update-available', () => {
     toast?.('Atualização encontrada, baixando agora...');
@@ -36,9 +42,20 @@ function attachAutoUpdaterHandlers(autoUpdater, callbacks = {}) {
 
 function checkForUpdates(autoUpdater, callbacks = {}) {
   const { toast } = callbacks;
+
+  if (!app.isPackaged) {
+    toast?.('Atualização automática só funciona na versão instalada.');
+    log.info('AutoUpdater ignorado (app não empacotado)');
+    return;
+  }
+
   try {
     toast?.('Buscando atualizações...');
-    autoUpdater.checkForUpdatesAndNotify();
+    log.info('Disparando checkForUpdatesAndNotify');
+    autoUpdater.checkForUpdatesAndNotify().catch((err) => {
+      error('AutoUpdater falhou durante o check', { metadata: { error: err } });
+      toast?.('Erro ao buscar atualizações (veja os logs).');
+    });
   } catch (err) {
     warn('Falha ao iniciar busca de atualizações', {
       metadata: { error: err }

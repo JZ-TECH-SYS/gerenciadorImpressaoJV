@@ -1,7 +1,7 @@
 {
   "name": "jv-printer",
   "description": "Gerenciador de impressão ClickExpress",
-  "version": "2.0.5",
+  "version": "2.0.6",
   "main": "main.js",
   "author": "joaosn",
   "license": "MIT",
