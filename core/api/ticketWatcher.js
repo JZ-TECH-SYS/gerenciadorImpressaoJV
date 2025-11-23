@@ -2,7 +2,7 @@
 const consultarTickets = require('./consultarTickets');
 const imprimirHTML     = require('../impressora/imprimirHtml');
 const Store            = require('electron-store');
-const { log }          = require('../utils/logger');
+const { info, warn, error, debug } = require('../utils/logger');
 
 const store = new Store();
 let ativo   = false;
@@ -11,11 +11,14 @@ async function startWatcher() {
   if (ativo) return;
   ativo = true;
 
-  log('🔁 Iniciando watcher de impressão…');
+  info('🔁 Iniciando watcher de impressão…', {
+    metadata: { area: 'ticketWatcher' }
+  });
 
   while (ativo) {
     try {
       const tickets = await consultarTickets();
+      debug('Tickets consultados', { metadata: { quantidade: tickets.length } });
       const impressoraPadrao = store.get('printer'); // Impressora padrão das configurações
       
       for (const item of tickets) {
@@ -24,27 +27,50 @@ async function startWatcher() {
           const textoParaImprimir = item.texto || item; // Compatibilidade com formato antigo
           const impressoraEspecifica = item.impressora; // null ou nome da impressora
 
-          log(`Impressão do ticket iniciado. impressora: ${impressoraEspecifica || 'padrão'}`);
+          info('Impressão do ticket iniciado', {
+            metadata: {
+              impressoraSolicitada: impressoraEspecifica || 'padrão',
+              ticket: item.id || item.chave || null
+            }
+          });
           
           // Se vier impressora específica, usa ela; senão usa a padrão
           const printerName = impressoraEspecifica || impressoraPadrao;
           
           if (!printerName) {
-            log(`⚠️ Nenhuma impressora definida para este ticket`);
+            warn('⚠️ Nenhuma impressora definida para este ticket', {
+              metadata: { ticket: item.id || item.chave || null }
+            });
             continue;
           }
           
-          log(`🖨️ Imprimindo na: ${printerName} ${impressoraEspecifica ? '(específica)' : '(padrão)'}`);
+          info('🖨️ Enviando para impressora', {
+            metadata: {
+              impressora: printerName,
+              modo: impressoraEspecifica ? 'especifica' : 'padrao'
+            }
+          });
           
           const resultado = await imprimirHTML({ msg: textoParaImprimir, printerName });
-          log(`✅ Ticket impresso com sucesso | Impressora: ${printerName} | JobID: ${resultado.jobId}`);
+          info('✅ Ticket impresso com sucesso', {
+            metadata: {
+              impressora: printerName,
+              jobId: resultado.jobId,
+              ticket: item.id || null,
+              origemJob: resultado.source
+            }
+          });
         } catch (error) {
-          log(`❌ Erro ao imprimir ticket: ${error.message}`);
+          error('❌ Erro ao imprimir ticket', {
+            metadata: { error, ticket: item?.id || null }
+          });
         }
       }
       await delay(500);
     } catch (e) {
-      log('❌ Erro no watcher: ' + e.message);
+      error('❌ Erro no watcher de tickets', {
+        metadata: { error: e }
+      });
       await delay(3000);
     }
   }
@@ -52,7 +78,7 @@ async function startWatcher() {
 
 function stopWatcher() {
   ativo = false;
-  log('⛔ Watcher de impressão parado');
+  info('⛔ Watcher de impressão parado');
 }
 
 function delay(ms) {

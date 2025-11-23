@@ -1,7 +1,7 @@
 // core/impressora/imprimirHtml.js
 const { BrowserWindow } = require('electron');
 const path = require('path');
-const { log, logImpressao } = require('../utils/logger');
+const { info, debug, warn, error, logImpressao } = require('../utils/logger');
 const windowsJobMonitor = require('../utils/windowsJobMonitor');
 
 async function imprimirHTML({
@@ -14,8 +14,15 @@ async function imprimirHTML({
 
   // Log inicial da tentativa de impressão
   logImpressao(printerName, msg, null);
-  log(`[PRINT] Imprimindo "${printerName}" → ${msg.length} caracteres`);
-  log(`[PRINT-HTML] Conteúdo: ${msg}`);
+  info('Iniciando impressão HTML', {
+    metadata: { impressora: printerName, tamanho: msg.length, tipo: 'html' }
+  });
+  debug('HTML preparado para impressão', {
+    metadata: {
+      impressora: printerName,
+      snippet: msg.length > 400 ? `${msg.slice(0, 400)}...` : msg
+    }
+  });
 
   const win = new BrowserWindow({
     show: false,
@@ -24,7 +31,9 @@ async function imprimirHTML({
     webPreferences: { sandbox: false }
   });
 
-  log(`[PRINT] Carregando HTML para "${printerName}"`);
+  info('Carregando conteúdo HTML no BrowserWindow', {
+    metadata: { impressora: printerName }
+  });
 
   await win.loadURL(
     'data:text/html;charset=utf-8,' + encodeURIComponent(msg)
@@ -40,26 +49,34 @@ async function imprimirHTML({
       async (success, failureReason) => {
         if (success) {
           // Aguarda um pouco e tenta capturar o Job ID real do Windows
-          log(`[PRINT] ✅ Enviado para impressora "${printerName}" - buscando Job ID...`);
+          info('HTML enviado para impressora com sucesso', {
+            metadata: { impressora: printerName }
+          });
           
           try {
             const windowsJobId = await windowsJobMonitor.waitForJobId(printerName, 3000);
             
             if (windowsJobId) {
               logImpressao(printerName, msg, windowsJobId);
-              log(`[PRINT] ✅ SUCESSO → "${printerName}" | Windows JobID: ${windowsJobId}`);
+              info('Job confirmado pelo Windows', {
+                metadata: { impressora: printerName, jobId: windowsJobId }
+              });
               win.close();
               resolve({ success: true, jobId: windowsJobId, source: 'windows' });
             } else {
               // Fallback para ID customizado se não conseguir pegar do Windows
               const fallbackId = `CUSTOM_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
               logImpressao(printerName, msg, fallbackId);
-              log(`[PRINT] ✅ SUCESSO → "${printerName}" | Fallback JobID: ${fallbackId}`);
+              warn('Fallback de JobID após tentativa pelo Windows', {
+                metadata: { impressora: printerName, jobId: fallbackId }
+              });
               win.close();
               resolve({ success: true, jobId: fallbackId, source: 'fallback' });
             }
           } catch (error) {
-            log(`[PRINT] ⚠️ Erro ao buscar Job ID: ${error.message}`);
+            warn('Erro ao buscar Job ID do Windows', {
+              metadata: { impressora: printerName, error }
+            });
             const fallbackId = `ERROR_${Date.now()}`;
             logImpressao(printerName, msg, fallbackId);
             win.close();
@@ -67,7 +84,9 @@ async function imprimirHTML({
           }
         } else {
           const erro = failureReason || 'Erro desconhecido na impressão';
-          log(`[PRINT] ❌ FALHOU → "${printerName}" | Erro: ${erro}`);
+          error('Falha ao imprimir HTML', {
+            metadata: { impressora: printerName, erro }
+          });
           win.close();
           reject(new Error(erro));
         }

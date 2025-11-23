@@ -4,6 +4,7 @@ const path = require('path');
 const Store = require('electron-store');
 const imprimirHTML = require('../impressora/imprimirHtml');
 const listarImpressoras = require('../impressora/listarImpressoras');
+const { info, warn, error } = require('../utils/logger');
 
 const store = new Store();
 let testPrintWindow = null;
@@ -16,20 +17,30 @@ function registerHandlers() {
 
   ipcMain.handle('testPrint:getPrinters', async () => {
     try {
-      console.log('[TEST-PRINT] Solicitação de listar impressoras...');
+      info('[TEST-PRINT] Solicitando lista de impressoras', {
+        metadata: { area: 'testPrint' }
+      });
       const result = await listarImpressoras();
-      console.log('[TEST-PRINT] Resultado listarImpressoras:', result);
+      info('[TEST-PRINT] Resultado listarImpressoras', {
+        metadata: { status: result.status, total: result.data?.length ?? 0 }
+      });
       
       // listarImpressoras retorna { status, acao, data: [] }
       if (result.status === 'success' && Array.isArray(result.data)) {
-        console.log('[TEST-PRINT] Impressoras encontradas:', result.data.length);
+        info('[TEST-PRINT] Impressoras encontradas', {
+          metadata: { total: result.data.length }
+        });
         return result.data;
       }
       
-      console.log('[TEST-PRINT] Nenhuma impressora encontrada ou erro no formato');
+      warn('[TEST-PRINT] Nenhuma impressora encontrada ou erro no formato', {
+        metadata: { status: result.status }
+      });
       return [];
     } catch (error) {
-      console.error('[TEST-PRINT] Erro ao listar impressoras:', error);
+      error('[TEST-PRINT] Erro ao listar impressoras', {
+        metadata: { error }
+      });
       return [];
     }
   });
@@ -46,12 +57,18 @@ function registerHandlers() {
         silent: true
       });
       
+      info('[TEST-PRINT] Impressão de teste concluída', {
+        metadata: { jobId: result.jobId, fonte: result.source }
+      });
       return {
         success: true,
         jobId: result.jobId,
         source: result.source
       };
     } catch (error) {
+      error('[TEST-PRINT] Falha ao imprimir conteúdo de teste', {
+        metadata: { error }
+      });
       return {
         success: false,
         error: error.message

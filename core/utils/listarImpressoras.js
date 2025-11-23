@@ -2,7 +2,7 @@ const os = require("os");
 const { exec } = require("child_process");
 const util = require("util");
 const execPromise = util.promisify(exec);
-const { erro } = require("../utils/log");
+const { info, error } = require("../utils/logger");
 
 async function listarImpressoras() {
   try {
@@ -10,6 +10,9 @@ async function listarImpressoras() {
     const { stdout } = await execPromise(cmd);
     const nomes = stdout.split("\n").map(l => l.trim())
       .filter(l => l && l !== "Name" && l !== "printer");
+    info('Lista de impressoras atualizada (utilitário)', {
+      metadata: { comando: cmd, total: nomes.length }
+    });
 
     return {
       status: "success",
@@ -17,7 +20,9 @@ async function listarImpressoras() {
       data: nomes
     };
   } catch (error) {
-    erro(`Erro ao listar impressoras: ${error.message}`);
+    error('Erro ao listar impressoras (utilitário)', {
+      metadata: { error, area: 'listarImpressorasUtils' }
+    });
     return {
       status: "error",
       acao: "todasImpressoras"
