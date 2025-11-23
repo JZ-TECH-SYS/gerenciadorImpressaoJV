@@ -1,244 +1,154 @@
-<h1 align="center">
-<br>
-  <img src="build/icon.png" alt="JV-Printer" width="120">
-<br>
-<br>
-🖨️ JV-Printer - Sistema de Gerenciamento de Impressão
-</h1>
+# 🖨️ JV-Printer · Gerenciador de Impressões Inteligente
 
-<p align="center">
-  <strong>Sistema avançado de gerenciamento e monitoramento de impressão com rastreabilidade completa</strong>
-</p>
+![JV-Printer](build/icon.png)
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Electron-20+-blue?style=flat&logo=electron" alt="Electron">
-  <img src="https://img.shields.io/badge/Node.js-18+-green?style=flat&logo=node.js" alt="Node.js">
-  <img src="https://img.shields.io/badge/Windows-10/11-blue?style=flat&logo=windows" alt="Windows">
-  <img src="https://img.shields.io/badge/License-MIT-yellow?style=flat" alt="License">
-</p>
+> Monitoramento contínuo de tickets, impressão automática e rastreabilidade de ponta-a-ponta.
+
+![Electron](https://img.shields.io/badge/Electron-28+-4776E6?style=flat&logo=electron)
+![Node.js](https://img.shields.io/badge/Node.js-18+-43853D?style=flat&logo=node.js)
+![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D6?style=flat&logo=windows)
+![MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat)
 
 ---
 
-## 🚀 **Funcionalidades Principais**
+## ✨ Destaques
 
-### ✨ **Impressão Automatizada**
-- 🔄 Monitoramento contínuo de API para novos tickets
-- 🖨️ Impressão automática em impressoras configuradas
-- ⚡ Processamento em tempo real
-
-### 📊 **Rastreabilidade Completa**
-- 🆔 **Job IDs do Windows** - Captura automaticamente o ID real da impressão
-- 📋 **Logs Duplos** - Sistema próprio + logs nativos do Windows
-- 🕐 **Timestamps Brasileiros** - Data/hora em formato pt-BR
-- 📄 **Conteúdo HTML** - Registro completo do que foi impresso
-
-### 🛠️ **Interface Amigável**
-- 🎛️ Controle via ícone na bandeja do sistema
-- ⚙️ Configuração simples de API e impressora
-- 📂 Acesso rápido aos logs
-- ❓ Sistema de ajuda integrado
+- 🔄 **Impressão automatizada** — consulta a API, gera o HTML e envia para a impressora em segundos.
+- 🆔 **Job ID real do Windows** — captura o identificador original do spooler e grava nos relatórios.
+- 📒 **Logs JSON Lines** — cada evento é salvo como JSON estruturado e exibido na UI em ordem decrescente.
+- 🖥️ **App desktop nativo** — bandeja do sistema, notificações, toasts e viewer de logs com “tema Matrix”.
+- 🔔 **Atualizador integrado** — builds empacotados com electron-builder + GitHub Releases.
 
 ---
 
-## 📦 **Instalação**
+## 📦 Instalação
 
-### **Pré-requisitos**
-- Windows 10/11
-- Node.js 18+ (apenas para desenvolvimento)
-- Impressora configurada no sistema
+### Usuário final
 
-### **Instalação do Executável (Recomendado)**
-1. Baixe o arquivo `jv-printer-setup.exe`
-2. **Execute como Administrador** (clique direito → "Executar como administrador")
-3. Siga o assistente de instalação
-4. O aplicativo será iniciado automaticamente
+1. Baixe o instalador `jv-printer.Setup.x.y.z.exe` no GitHub Releases.
+2. Clique com o botão direito → **Executar como administrador**.
+3. Conclua o assistente. O JV-Printer inicia sozinho e fica disponível na bandeja.
 
-### **Instalação para Desenvolvimento**
+### Ambiente de desenvolvimento
+
 ```bash
-# Clone o repositório
 git clone https://github.com/JZ-TECH-SYS/gerenciadorImpressaoJV.git
+cd gerenciadorImpressaoJV
 
-# Instale as dependências
-npm install
+npm install          # dependências
+npm start            # Electron em modo dev
 
-# Execute em modo desenvolvimento
-npm start
-
-# Gere o executável
-npm run build
+npm run dist         # gera instalador + latest.yml
 ```
+
+Pré-requisitos: Windows 10/11, Node.js 18+, Git e uma impressora configurada no SO.
 
 ---
 
-## ⚙️ **Configuração Inicial**
+## ⚙️ Configuração inicial
 
-### **1. Primeira Execução**
-- O sistema abrirá automaticamente a tela de configurações
-- Configure a **URL da API** e **ID da empresa**
-- Selecione a **impressora** desejada
+1. Na primeira execução o app abre automaticamente a tela **Configurações**.
+2. Informe a **URL da API**, **ID da empresa** e selecione a **impressora**.
+3. Clique em **Salvar**. As demais janelas (logs, teste de impressão, ajuda) ficam no menu do tray.
 
-### **2. Configuração da Impressora**
-```bash
-# Compartilhar impressora (opcional - para rede)
-1. Painel de Controle → Dispositivos e Impressoras
-2. Clique direito na impressora → Propriedades
-3. Aba "Compartilhamento" → Marcar "Compartilhar esta impressora"
-4. Nome: "impressjv" (recomendado)
-```
+### Permissões úteis
 
-### **3. Permissões (se necessário)**
-Se houver problemas de permissão, execute como administrador:
-```cmd
-# Habilitar logs do Windows
+```powershell
+# Habilitar log do spooler (necessário para capturar Job ID)
 wevtutil sl Microsoft-Windows-PrintService/Operational /e:true
 
-# Configurar PowerShell (se necessário)
+# Caso o PowerShell esteja bloqueado
 Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 
 ---
 
-## 🖱️ **Como Usar**
+## 🖱️ Operação diária
 
-### **Menu da Bandeja do Sistema**
-Clique direito no ícone 🖨️ na bandeja:
+| Ação | Onde fica | O que faz |
+|------|-----------|-----------|
+| ⚙️ Configurações | Menu da bandeja | Edita API, impressora, tempo de pooling etc. |
+| ▶️ Iniciar | Menu da bandeja | Começa a vigiar a API e imprimir automaticamente |
+| ⛔ Parar | Menu da bandeja | Pausa o watcher |
+| 📄 Logs | Menu ou atalho | Viewer dark com filtros por nível e busca textual |
+| 🧪 Teste de impressão | Menu | Dispara recibo de teste direto na impressora |
+| 📁 Abrir pasta | Menu | Abre `%TEMP%\jv-printer\logs` no Explorer |
+| ❓ Ajuda | Menu | Gera o arquivo `SOLUCAO_PROBLEMAS.txt` com check-list |
 
-- **⚙️ Configurações** - Alterar API, impressora, etc.
-- **▶️ Iniciar Impressão** - Ativar monitoramento automático
-- **⛔ Parar Impressão** - Pausar o serviço
-- **📄 Ver Logs** - Visualizar logs em tempo real
-- **📁 Abrir Pasta de Logs** - Acessar arquivos de log
-- **❓ Ajuda (Problemas)** - Guia de solução de problemas
-
-### **Funcionamento Automático**
-1. Configure a API e impressora
-2. Clique em "▶️ Iniciar Impressão"
-3. O sistema monitora automaticamente a API
-4. Novos tickets são impressos instantaneamente
-5. Tudo é registrado nos logs
+O watcher roda em background. Assim que a API retorna um ticket, o HTML é renderizado num `BrowserWindow` invisível, impresso e, depois, validado pelo `windowsJobMonitor` para capturar o ID original do Windows.
 
 ---
 
-## 📋 **Logs e Monitoramento**
+## 📚 Logs & diagnósticos
 
-### **📂 Localização dos Logs**
-```
-%TEMP%\jv-printer\logs\
-(Geralmente: C:\Users\[USUARIO]\AppData\Local\Temp\jv-printer\logs\)
-```
+- **Formato:** JSON Lines (`*.jsonl`). Cada linha = um evento (`timestamp`, `level`, `message`, `metadata`).
+- **Caminho:** `%TEMP%\jv-printer\logs` (ex.: `C:\Users\<user>\AppData\Local\Temp\jv-printer\logs`).
+- **Arquivos:**
+  - `YYYY-MM-DD-log-sistema.jsonl` → fluxo geral (API, impressão, erros, toasts)
+  - `YYYY-MM-DD-log-win.jsonl` → eventos do monitor de jobs do Windows
+  - `SOLUCAO_PROBLEMAS.txt` → guia rápido criado automaticamente
+- **Viewer interno:** lê os últimos KB, filtra por nível (erro/aviso/info/debug), busca trechos e mostra o conteúdo de impressão dentro de um bloco `<pre>` com rolagem. Registros mais novos aparecem no topo.
 
-### **📄 Tipos de Arquivos de Log**
-- **`YYYY-MM-DD-log-sistema.log`** - Logs do sistema de impressão
-- **`YYYY-MM-DD-log-win.log`** - Logs dos Job IDs do Windows
-- **`SOLUCAO_PROBLEMAS.txt`** - Guia de ajuda (criado automaticamente)
+Trecho real:
 
-### **🔍 Exemplo de Log**
-```
-[13/08/2025, 14:30:25] IMPRESSAO - Impressora: EPSON_L3150 | Tamanho: 1024 chars | JobID: 157
-[13/08/2025, 14:30:25] [PRINT-HTML] Conteúdo: <html><body>...conteúdo completo...</body></html>
-[13/08/2025, 14:30:26] ✅ SUCESSO → "EPSON_L3150" | Windows JobID: 157
+```json
+{"timestamp":"2025-11-23T17:20:14.772Z","level":"info","message":"IMPRESSAO - Impressora: MP-4200 TH | JobID: 884","channel":"system","metadata":{"impressora":"MP-4200 TH","jobId":884,"comprimento":3962,"conteudo":"<style>..."}}
 ```
 
 ---
 
-## 🆘 **Solução de Problemas**
+## 🚀 Releases, CI/CD e auto-update
 
-### **❌ Erro: "Não consegue capturar Job IDs"**
-1. Execute como administrador
-2. Execute: `wevtutil sl Microsoft-Windows-PrintService/Operational /e:true`
-3. Reinicie a aplicação
+O pipeline usa **GitHub Actions** + **electron-builder**.
 
-### **❌ Erro: "PowerShell restrito"**
-```powershell
-Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
+1. Ajuste a versão em `package.json` (ou rode `node scripts/bumpVersion.js`).
+2. `git commit -am "release: vX.Y.Z" && git push`.
+3. O workflow `Build & Release` executa `npm run dist`, publica `Setup.exe` + `latest.yml` no GitHub Releases e cria a tag `vX.Y.Z`.
+4. O app chama `autoUpdater.checkForUpdatesAndNotify()` ao iniciar; quando encontra release assinado, baixa em background e mostra toast quando pronto para instalar.
 
-### **❌ Erro: "Impressora não encontrada"**
-1. Verifique se a impressora está instalada e funcionando
-2. Faça uma impressão de teste pelo Windows
-3. Reconfigure a impressora nas configurações
+> 🔒 **Repositório privado?** O feed `releases.atom` exige acesso público ou um token. Se o app estiver instalado em máquinas sem autenticação GitHub, o auto-update retornará 404. Solução: tornar o release público ou hospedar os artefatos em um endpoint acessível (S3, CDN etc.) e apontar o updater para lá.
 
-### **📞 Suporte**
-- Clique em **"❓ Ajuda (Problemas)"** no menu para guia detalhado
-- Entre em contato com **JZ-TECH-SYS**
+Para gerar um build manual:
 
----
-
-## 🛠️ **Arquitetura Técnica**
-
-### **📦 Tecnologias Utilizadas**
-- **Electron** - Interface desktop multiplataforma
-- **Node.js** - Runtime JavaScript
-- **PowerShell** - Integração com sistema Windows
-- **Windows Event Log** - Captura de Job IDs nativos
-
-### **🔄 Fluxo de Funcionamento**
-```
-API → Consulta Tickets → Processa HTML → Envia para Impressora → 
-Captura Job ID → Registra Logs → Aguarda Próximo Ciclo
-```
-
-### **📊 Estrutura de Logs**
-```
-Sistema: [TIMESTAMP] ACAO - Detalhes | JobID: XXX
-Windows: [TIMESTAMP] JOB_ID_CAPTURADO - JobID: XXX | Impressora: YYY
-```
-
----
-
-## 📄 **Licença**
-
-Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
-
----
-
-## 🚀 Atualizações Automáticas & CI/CD
-
-Projeto configurado com `electron-builder` + `electron-updater` usando **GitHub Releases** via **GitHub Actions**.
-
-### 🔄 Fluxo
-1. Atualize `version` em `package.json`.
-2. `git commit -am "bump: v2.0.1"`
-3. `git push origin main`
-4. Workflow:
-  - instala deps
-  - roda `npm run dist`
-  - publica release com `.exe` + `latest.yml`
-5. App chama `autoUpdater.checkForUpdatesAndNotify()` ao iniciar.
-6. Download concluído → instala (evento `update-downloaded`).
-
-### 🛠️ Local
-```
+```bash
 npm run dist
 ```
-Gera instalador e `latest.yml` em `dist`.
-
-### ✅ Benefícios
-* Sem acesso remoto a clientes
-* Atualização silenciosa
-* Histórico de versões organizado
-
-### 🔐 Token
-Usa `secrets.GITHUB_TOKEN` (automático) para publicar.
-
-### ♻️ Versão Automática
-Cada push em `main` (sem `[skip ci]`) incrementa o patch da versão e cria uma tag `vX.Y.Z` automaticamente.
+Os artefatos ficam em `dist/`.
+ 
 
 ---
 
-## �👨‍💻 **Desenvolvido por**
+## 🆘 Troubleshooting rápido
 
-**JZ-TECH-SYS**  
-Sistema de Gerenciamento de Impressão JV 
-
-node scripts/bumpVersion.js
-git add package.json
-git commit -m "release: vX.Y.Z"
-git push origin main
-
+| Sintoma | Ação sugerida |
+|---------|---------------|
+| Não captura Job ID | Executar comandos de permissão (seção “Configuração”), reiniciar app como admin |
+| Impressora não aparece na lista | Verificar se está instalada, ligada e sem filas, depois reabrir configurações |
+| API não responde | Checar conectividade, logs `log-sistema.jsonl` e o filtro de busca no viewer |
+| Auto-update mostra 404 | Confirmar se o release é público ou configure feed alternativo com token |
 
 ---
 
-<p align="center">
-  <strong>🖨️ Impressão Inteligente • 📊 Rastreabilidade Total • 🚀 Automação Completa</strong>
-</p>
+## 🧱 Stack & arquitetura
+
+- **Electron** para UI desktop + tray + notificações.
+- **Node.js + PowerShell** para comunicação com o Windows spooler.
+- **Electron IPC / preload** para expor `logViewer`, `settings` e `testPrint` às páginas HTML.
+- **Windows Event Log** monitorado por `windowsJobMonitor` (poll + filtros) para casar o Job ID real com a impressão enviada.
+
+Fluxo macro:
+
+```text
+API → Ticket → Render HTML → BrowserWindow.silentPrint → windowsJobMonitor → log JSONL → viewer / suporte
+```
+
+---
+
+## 📄 Licença
+
+Distribuído sob a licença [MIT](LICENSE).
+
+---
+
+**🖨️ Impressão Inteligente • 📊 Rastreabilidade Total • 🚀 Automação Completa**  
+JZ-TECH-SYS · JV-Printer
