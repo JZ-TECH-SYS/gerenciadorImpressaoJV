@@ -7,6 +7,114 @@
 
     let currentFile = '';
     let ticker = null;
+    const LEVEL_CLASSES = ['error', 'warn', 'info', 'debug'];
+
+    const escapeHtml = (value) =>
+        String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+
+    const formatMetadata = (metadata = {}) => {
+        const result = { lines: [], content: '' };
+        if (typeof metadata !== 'object' || !metadata) return result;
+
+        Object.entries(metadata).forEach(([key, value]) => {
+            if (value === undefined || value === null) return;
+            if (key === 'conteudo' && typeof value === 'string') {
+                result.content = value;
+                return;
+            }
+            if (value instanceof Error) {
+                result.lines.push(`${key}: ${value.message}`);
+                return;
+            }
+            if (typeof value === 'object') {
+                try {
+                    result.lines.push(`${key}: ${JSON.stringify(value)}`);
+                } catch {
+                    result.lines.push(`${key}: [object]`);
+                }
+                return;
+            }
+            result.lines.push(`${key}: ${value}`);
+        });
+
+        return result;
+    };
+
+    const createLogLineElement = (line) => {
+        const element = document.createElement('div');
+        element.classList.add('log-line');
+
+        let level = 'info';
+        let timestamp = '';
+        let message = line;
+        let metadata = { lines: [], content: '' };
+
+        const trimmed = line.trim();
+        if (trimmed.startsWith('{')) {
+            try {
+                const parsed = JSON.parse(trimmed);
+                level = (parsed.level || level).toLowerCase();
+                timestamp = parsed.timestamp
+                    ? new Date(parsed.timestamp).toLocaleString('pt-BR', { hour12: false })
+                    : '';
+                message = parsed.message || message;
+                metadata = formatMetadata(parsed.metadata || {});
+            } catch (error) {
+                metadata.lines = ['Falha ao interpretar JSON: ' + error.message];
+            }
+        } else {
+            const match = line.match(/^\[([^\]]+)\]\s*\[([^\]]+)\]\s*(.*)$/);
+            if (match) {
+                timestamp = match[1];
+                const parsedLevel = match[2].toLowerCase();
+                level = LEVEL_CLASSES.includes(parsedLevel) ? parsedLevel : level;
+                message = match[3];
+            }
+        }
+
+        if (!LEVEL_CLASSES.includes(level)) {
+            level = 'info';
+        }
+
+        const metaHtml = metadata.lines.length
+            ? `<div class="log-meta">${metadata.lines
+                  .map((line) => `<span>${escapeHtml(line)}</span>`)
+                  .join('<br>')}</div>`
+            : '';
+        const contentHtml = metadata.content
+            ? `<pre class="log-content">${escapeHtml(metadata.content)}</pre>`
+            : '';
+
+        element.classList.add(level);
+                element.innerHTML = `
+            <div class="log-header">
+                <span class="log-time">${escapeHtml(timestamp)}</span>
+                <span class="log-level ${level}">${escapeHtml(level.toUpperCase())}</span>
+            </div>
+      <div class="log-message">${escapeHtml(message)}</div>
+      ${metaHtml}
+      ${contentHtml}
+    `;
+
+        return element;
+    };
+
+    const renderLogLines = (lines) => {
+        logContent.innerHTML = '';
+
+        if (!lines.length) {
+            logContent.textContent = 'Sem registros para mostrar.';
+            return;
+        }
+
+        const fragment = document.createDocumentFragment();
+        const ordered = [...lines].reverse();
+        ordered.forEach((line) => fragment.appendChild(createLogLineElement(line)));
+        logContent.appendChild(fragment);
+    };
 
     async function refreshLog() {
         if (!currentFile) return;
@@ -20,7 +128,7 @@
             search: searchTerm
         });
 
-        logContent.textContent = data.display.join('\n') || 'Sem registros para mostrar.';
+        renderLogLines(data.display);
         const updatedAt = new Date(data.meta.mtime).toLocaleString('pt-BR');
         const truncado = data.truncated ? ' (arquivo truncado)' : '';
         logMeta.textContent = `Arquivo: ${currentFile} | Tamanho: ${data.meta.size} bytes | Última gravação: ${updatedAt}${truncado}`;
