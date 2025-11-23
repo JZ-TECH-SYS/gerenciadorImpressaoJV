@@ -16,8 +16,6 @@ async function startWatcher() {
   while (ativo) {
     try {
       const tickets = await consultarTickets();
-      log(`📥 Tickets recebidos: ${tickets.length}`);
-
       const impressoraPadrao = store.get('printer'); // Impressora padrão das configurações
       
       for (const item of tickets) {
