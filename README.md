@@ -113,8 +113,8 @@ Para gerar um build manual:
 ```bash
 npm run dist
 ```
-
 Os artefatos ficam em `dist/`.
+ 
 
 ---
 

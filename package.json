@@ -1,7 +1,7 @@
 {
   "name": "jv-printer",
   "description": "Gerenciador de impressão ClickExpress",
-  "version": "2.0.9",
+  "version": "2.0.10",
   "main": "main.js",
   "author": "joaosn",
   "license": "MIT",
@@ -39,7 +39,8 @@
       "target": [
         "nsis"
       ],
-      "icon": "icon.png"
+      "icon": "icon.png",
+      "artifactName": "jv-printer-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
