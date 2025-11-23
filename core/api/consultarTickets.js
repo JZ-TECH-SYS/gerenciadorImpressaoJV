@@ -1,6 +1,6 @@
 const Store = require("electron-store");
 const store = new Store();
-const { log } = require('../utils/logger');
+const { warn, error, debug } = require('../utils/logger');
 
 async function consultarTickets() {
   const token = store.get('apiToken');
@@ -8,12 +8,16 @@ async function consultarTickets() {
   const idempresa = store.get("idempresa");
 
   if (!token) {
-    log("Token não encontrado");
+    warn("Token não encontrado", {
+      metadata: { area: 'consultarTickets', missing: 'token' }
+    });
     return [];
   }
 
   if (!api) {
-    log("URL da API não encontrada");
+    warn("URL da API não encontrada", {
+      metadata: { area: 'consultarTickets', missing: 'apiUrl' }
+    });
     return [];
   }
 
@@ -26,10 +30,21 @@ async function consultarTickets() {
       }
     });
     const data = await res.json();
-    return Array.isArray(data.result?.texto) ? data.result.texto : [];
+    if (!res.ok) {
+      warn('Resposta não esperada da API', {
+        metadata: { status: res.status, body: data }
+      });
+    }
+    const tickets = Array.isArray(data.result?.texto) ? data.result.texto : [];
+    debug('Tickets recebidos', {
+      metadata: { quantidade: tickets.length, origem: api }
+    });
+    return tickets;
 
   } catch (e) {
-    log("Erro ao consultar API:" + e.message);
+    error("Erro ao consultar API", {
+      metadata: { area: 'consultarTickets', error: e }
+    });
     return [];
   }
 }

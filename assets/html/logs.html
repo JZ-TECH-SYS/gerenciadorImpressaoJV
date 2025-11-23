@@ -2,95 +2,29 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <title>Logs de Impressão</title>
-    <style>
-      body {
-        background: #111;
-        color: #0f0;
-        font-family: monospace;
-        margin: 0;
-        padding: 20px;
-      }
-
-      select {
-        background: #222;
-        color: #0f0;
-        border: 1px solid #444;
-        padding: 5px;
-        font-family: monospace;
-        font-size: 14px;
-        margin-bottom: 10px;
-      }
-
-      pre {
-        white-space: pre-wrap;
-        background: #000;
-        border: 1px solid #444;
-        padding: 15px;
-        max-height: 80vh;
-        overflow-y: auto;
-      }
-    </style>
+    <title>Logs do JV-Printer</title>
+    <link rel="stylesheet" href="../css/logs.css" />
   </head>
   <body>
-    <label for="logFile">📄 Selecione o log:</label>
-    <select id="logFile"></select>
+    <header>
+      <label for="logFile">📄 Selecionar log</label>
+      <select id="logFile"></select>
+      <div class="filters">
+        <label><input type="checkbox" value="error" checked /> Erro</label>
+        <label><input type="checkbox" value="warn" checked /> Aviso</label>
+        <label><input type="checkbox" value="info" checked /> Info</label>
+        <label><input type="checkbox" value="debug" checked /> Debug</label>
+      </div>
+      <input
+        id="search"
+        type="search"
+        placeholder="Filtrar termo, impressora ou ticket"
+      />
+    </header>
 
     <pre id="logContent">Carregando...</pre>
+    <div id="logMeta"></div>
 
-    <script>
-      const select = document.getElementById('logFile');
-      const pre = document.getElementById('logContent');
-      let currentFile = '';
-      let intervalo = null;
-
-      function carregarLog(nome) {
-        const texto = window.api.readLogFile(nome);
-        const linhas = texto.split('\n').filter(Boolean).reverse();
-        pre.textContent = linhas.join('\n') || 'Sem conteúdo.';
-      }
-
-      function iniciarAtualizacao(nome) {
-        pararAtualizacao();
-        currentFile = nome;
-        carregarLog(currentFile);
-        intervalo = setInterval(() => {
-          console.log('Atualizando log...');
-          carregarLog(currentFile);
-        }, 1000);
-      }
-
-      function pararAtualizacao() {
-        if (intervalo) clearInterval(intervalo);
-        intervalo = null;
-      }
-
-      (function () {
-        const arquivos = window.api.listLogs();
-        if (arquivos.length === 0) {
-          select.innerHTML = '<option>Sem arquivos</option>';
-          pre.textContent = '';
-          return;
-        }
-
-        arquivos
-          .sort()
-          .reverse()
-          .forEach((nome) => {
-            const opt = document.createElement('option');
-            opt.value = nome;
-            opt.textContent = nome;
-            select.appendChild(opt);
-          });
-
-        iniciarAtualizacao(select.value);
-
-        select.addEventListener('change', () => {
-          iniciarAtualizacao(select.value);
-        });
-
-        window.addEventListener('beforeunload', pararAtualizacao);
-      })();
-    </script>
+    <script src="../js/logs.js"></script>
   </body>
 </html>

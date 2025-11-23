@@ -1,23 +1,20 @@
 /* ─── Main process ─────────────────────────────────────────────────── */
 const {
   app,
-  BrowserWindow,
-  Tray,
-  Menu,
   Notification,
   ipcMain
 } = require('electron');
 const { autoUpdater } = require('electron-updater');
-
-const path                 = require('path');
-const Store                = require('electron-store');
-
+const path = require('path');
+const Store = require('electron-store');
+const { info, warn, error, abrirPastaLogs, criarArquivoAjuda } = require('./core/utils/logger');
 const { startWatcher, stopWatcher } = require('./core/api/ticketWatcher');
-const { createSettings }            = require('./core/windows/settings');
-const { openLogViewer }             = require('./core/windows/logViewer');
-const { createTestPrint }           = require('./core/windows/testPrint');
-const { abrirPastaLogs, criarArquivoAjuda } = require('./core/utils/logger');
-const listarImpressoras             = require('./core/impressora/listarImpressoras');
+const { createSettings } = require('./core/windows/settings');
+const { openLogViewer } = require('./core/windows/logViewer');
+const { createTestPrint } = require('./core/windows/testPrint');
+const trayManager = require('./core/windows/tray');
+const { registerPrinterHandlers } = require('./core/ipc/printers');
+const { attachAutoUpdaterHandlers } = require('./core/updater');
 
 /* ---------- store ---------- */
 const store = new Store({
@@ -25,9 +22,7 @@ const store = new Store({
 });
 
 /* ---------- state ---------- */
-let tray        = null;
-let printing    = false; // será alterado depois
-let menu        = null;
+let printing = false; // será alterado depois
 
 /* =========================================================
    1. Helpers
@@ -40,25 +35,8 @@ function hasValidConfig() {
   return !!store.get('apiUrl') && !!store.get('printer');
 }
 
-function buildMenuTemplate() {
-  return [
-    { label: '⚙️ Configurações', click: createSettings },
-    {
-      label: printing ? '⛔ Parar impressão' : '▶️ Iniciar impressão',
-      click: togglePrint
-    },
-    { type: 'separator' },
-    { label: '🖨️ Testar Impressão', click: createTestPrint },
-    { label: '📄 Ver Logs', click: openLogViewer },
-    { label: '📁 Abrir Pasta de Logs', click: abrirPastaLogs },
-    { label: '❓ Ajuda (Problemas)', click: abrirAjuda },
-    { type: 'separator' },
-    { label: '🚪 Sair', role: 'quit' }
-  ];
-}
-
 function rebuildTrayMenu() {
-  tray.setContextMenu(Menu.buildFromTemplate(buildMenuTemplate()));
+  trayManager.rebuildMenu();
 }
 
 function togglePrint() {
@@ -67,9 +45,15 @@ function togglePrint() {
   if (printing) {
     startWatcher();
     toast('Serviço de impressão iniciado');
+    info('Serviço de impressão ativo via toggle', {
+      metadata: { status: 'iniciado' }
+    });
   } else {
     stopWatcher();
     toast('Serviço de impressão parado');
+    info('Serviço de impressão pausado via toggle', {
+      metadata: { status: 'parado' }
+    });
   }
 
   rebuildTrayMenu();
@@ -77,10 +61,10 @@ function togglePrint() {
 
 function abrirAjuda() {
   const { shell } = require('electron');
-  
+
   // Cria o arquivo de ajuda e obtém o caminho
   const caminhoAjuda = criarArquivoAjuda();
-  
+
   if (caminhoAjuda) {
     shell.openPath(caminhoAjuda);
   } else {
@@ -92,14 +76,30 @@ function abrirAjuda() {
    2. App ready
 ========================================================= */
 app.whenReady().then(() => {
-  tray = new Tray(path.join(__dirname, 'assets/icon.png'));
-  tray.setToolTip('JV-Printer');
+  info('Aplicação pronta para uso', {
+    metadata: { ambiente: app.isPackaged ? 'producao' : 'desenvolvimento' }
+  });
+  trayManager.init(
+    path.join(__dirname, 'assets/icon.png'),
+    {
+      createSettings,
+      togglePrint,
+      createTestPrint,
+      openLogViewer,
+      abrirPastaLogs,
+      abrirAjuda
+    },
+    () => printing
+  );
 
   // Cria menu inicial (printing ainda false)
   rebuildTrayMenu();
 
   // Abre settings se ainda falta config
   if (!hasValidConfig()) {
+    warn('Configuração incompleta detectada', {
+      metadata: { apiUrl: !!store.get('apiUrl'), printer: !!store.get('printer') }
+    });
     createSettings();
   } else {
     // Config OK → inicia automaticamente
@@ -107,6 +107,9 @@ app.whenReady().then(() => {
     startWatcher();
     toast('Serviço de impressão iniciado');
     rebuildTrayMenu();
+    info('Serviço de impressão iniciado automaticamente', {
+      metadata: { trigger: 'inicializacao' }
+    });
   }
 
   // Auto update: verifica e aplica (silencioso)
@@ -114,16 +117,15 @@ app.whenReady().then(() => {
     autoUpdater.checkForUpdatesAndNotify();
   } catch (e) {
     // Falha silenciosa
-    console.warn('Falha ao checar atualizações', e.message);
+    warn('Falha ao checar atualizações automáticas', {
+      metadata: { error: e }
+    });
   }
 });
 
-// Opcional: instalar automaticamente após download
-autoUpdater.on('update-downloaded', () => {
-  try {
-    autoUpdater.quitAndInstall();
-  } catch {}
-});
+attachAutoUpdaterHandlers(autoUpdater);
+
+// (Atualização já aplicada na fila acima)
 
 /* =========================================================
    3. Janelas nunca fecham o app (fica só no tray)
@@ -135,21 +137,13 @@ app.on('window-all-closed', e => e.preventDefault());
 ========================================================= */
 ipcMain.handle('settings:get', (_e, key) => store.get(key));
 
-ipcMain.handle('printers:list', async () => {
-  try {
-    const result = await listarImpressoras();
-    // listarImpressoras retorna { status, acao, data: [] }
-    if (result.status === 'success' && Array.isArray(result.data)) {
-      return result.data;
-    }
-    return [];
-  } catch {
-    return [];
-  }
-});
+registerPrinterHandlers(ipcMain);
 
 /* Quando o usuário salva as configurações */
 ipcMain.on('settings-saved', (_e, { idempresa, apiUrl, apiToken, printer }) => {
+  info('Configurações salvas pelo usuário', {
+    metadata: { idempresa, apiUrl, printer }
+  });
   store.set({ idempresa, apiUrl, apiToken, printer });
 
   // Se já está tudo configurado e o serviço ainda não rodava → iniciar
@@ -159,5 +153,17 @@ ipcMain.on('settings-saved', (_e, { idempresa, apiUrl, apiToken, printer }) => {
     toast('Serviço de impressão iniciado');
     rebuildTrayMenu();
   }
+});
+
+process.on('uncaughtException', (err) => {
+  error('uncaughtException', {
+    metadata: { error: err }
+  });
+});
+
+process.on('unhandledRejection', (reason) => {
+  error('unhandledRejection', {
+    metadata: { error: reason }
+  });
 });
 

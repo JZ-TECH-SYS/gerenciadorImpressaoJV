@@ -9,9 +9,6 @@ function createSettings() {
     return;
   }
 
-  let paht = path.join(__dirname, "../../src/loads/preload.js");
-  console.log(paht);
-
   settingsWin = new BrowserWindow({
     width: 800,
     height: 900,

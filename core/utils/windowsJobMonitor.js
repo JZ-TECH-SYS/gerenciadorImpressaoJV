@@ -1,44 +1,12 @@
 // core/utils/windowsJobMonitor.js
 const { spawn } = require('child_process');
 const { log } = require('./logger');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
 
 class WindowsJobMonitor {
   constructor() {
     this.recentJobs = new Map(); // Armazena jobs recentes
-    this.TMP_BASE = path.join(os.tmpdir(), 'jv-printer', 'logs');
     this.jobCounter = Date.now() % 1000; // Contador para Job IDs únicos
-    
-    // Garante que o diretório existe
-    if (!fs.existsSync(this.TMP_BASE)) {
-      fs.mkdirSync(this.TMP_BASE, { recursive: true });
-    }
   }
-
-  // Gera caminho para log do Windows
-  getWinLogPath() {
-    const data = new Date().toISOString().split('T')[0]; // yyyy-mm-dd
-    return path.join(this.TMP_BASE, `${data}-log-win.log`);
-  }
-
-  // Salva log específico do Windows
-  logWindows(msg) {
-    const agora = new Date();
-    const timestamp = agora.toLocaleString('pt-BR', {
-      timeZone: 'America/Sao_Paulo',
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    });
-    const linha = `[${timestamp}] ${msg}${os.EOL}`;
-    fs.appendFileSync(this.getWinLogPath(), linha, 'utf8');
-  }
-
   // Monitora eventos de impressão do Windows  
   async getRecentPrintJobs() {
     return new Promise((resolve, reject) => {
@@ -73,14 +41,14 @@ class WindowsJobMonitor {
       ]);
 
       let output = '';
-      let error = '';
+      let stderrData = '';
 
       cmd.stdout.on('data', (data) => {
         output += data.toString();
       });
 
       cmd.stderr.on('data', (data) => {
-        error += data.toString();
+        stderrData += data.toString();
       });
 
       cmd.on('close', (code) => {
@@ -102,9 +70,24 @@ class WindowsJobMonitor {
           }
         }
         
-        this.logWindows(`POWERSHELL_EXECUTADO - Código: ${code} | Jobs encontrados: ${jobs.length}`);
+        log('POWERSHELL_EXECUTADO', {
+          channel: 'windows',
+          metadata: { codigo: code, jobs: jobs.length }
+        });
+        if (stderrData.trim()) {
+          log('POWERSHELL_STDERR', {
+            channel: 'windows',
+            metadata: { saida: stderrData }
+          });
+        }
         if (jobs.length > 0) {
-          this.logWindows(`JOBS_REAIS_ENCONTRADOS - Primeiro: JobID ${jobs[0].jobId} | Impressora: ${jobs[0].printer}`);
+          log('JOBS_REAIS_ENCONTRADOS', {
+            channel: 'windows',
+            metadata: {
+              jobId: jobs[0].jobId,
+              impressora: jobs[0].printer
+            }
+          });
         }
         
         resolve(jobs);
@@ -116,20 +99,31 @@ class WindowsJobMonitor {
   async getLatestJobId(printerName) {
     try {
       const jobs = await this.getRecentPrintJobs();
-      this.logWindows(`BUSCA_JOB_ID - Impressora: ${printerName} | Jobs encontrados: ${jobs.length}`);
+      log('BUSCA_JOB_ID', {
+        channel: 'windows',
+        metadata: { impressora: printerName, quantidade: jobs.length }
+      });
       
       const job = jobs
         .filter(j => j.printer && j.printer.includes(printerName))
         .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
       
       if (job) {
-        this.logWindows(`JOB_ID_ENCONTRADO - JobID: ${job.jobId} | Impressora: ${job.printer} | Documento: ${job.docName}`);
+        log('JOB_ID_ENCONTRADO', {
+          channel: 'windows',
+          metadata: { jobId: job.jobId, impressora: job.printer, documento: job.docName }
+        });
       }
       
       return job ? job.jobId : null;
     } catch (error) {
-      this.logWindows(`ERRO_BUSCA_JOB_ID - ${error.message}`);
-      log(`Erro ao buscar Job ID do Windows: ${error.message}`);
+      log('ERRO_BUSCA_JOB_ID', {
+        channel: 'windows',
+        metadata: { error }
+      });
+      log(`Erro ao buscar Job ID do Windows: ${error.message}`, {
+        metadata: { area: 'windowsJobMonitor', error }
+      });
       return null;
     }
   }
@@ -150,7 +144,10 @@ class WindowsJobMonitor {
     // Se não encontrou Job ID real, gera um único e confiável
     this.jobCounter++;
     const uniqueJobId = `WIN_${this.jobCounter}`;
-    this.logWindows(`JOB_ID_GERADO - JobID: ${uniqueJobId} | Impressora: ${printerName} | Motivo: Timeout aguardando Job ID do Windows`);
+    log('JOB_ID_GERADO', {
+      channel: 'windows',
+      metadata: { jobId: uniqueJobId, impressora: printerName, motivo: 'timeout' }
+    });
     
     return uniqueJobId;
   }

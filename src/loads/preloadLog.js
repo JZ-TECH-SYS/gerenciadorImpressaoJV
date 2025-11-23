@@ -1,23 +1,112 @@
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge } = require('electron');
+const { getLogDir } = require('../../core/utils/logger');
 
-const LOG_DIR = path.join(os.tmpdir(), 'jv-printer', 'logs');
+const LOG_DIR = getLogDir();
+const TEXT_LEVEL_MAP = {
+  erro: 'error',
+  aviso: 'warn',
+  info: 'info',
+  debug: 'debug'
+};
 
-contextBridge.exposeInMainWorld('api', {
-  listLogs: () => {
-    try {
-      return fs.readdirSync(LOG_DIR).filter(f => f.endsWith('.log'));
-    } catch {
-      return [];
+function listLogFiles() {
+  try {
+    return fs.readdirSync(LOG_DIR)
+      .filter((file) => file.endsWith('.log') || file.endsWith('.jsonl'))
+      .map((file) => {
+        const stats = fs.statSync(path.join(LOG_DIR, file));
+        return { name: file, size: stats.size, mtime: stats.mtimeMs };
+      });
+  } catch (error) {
+    console.error('Erro ao listar logs', error);
+    return [];
+  }
+}
+
+async function readLogTail({
+  filename,
+  maxBytes = 128 * 1024,
+  levelFilters = [],
+  search = ''
+}) {
+  if (!filename) {
+    return {
+      display: ['Selecione um arquivo válido'],
+      meta: { size: 0, mtime: Date.now() },
+      truncated: false
+    };
+  }
+
+  const filePath = path.join(LOG_DIR, filename);
+  try {
+    const stats = fs.statSync(filePath);
+    const start = Math.max(0, stats.size - maxBytes);
+    const length = stats.size - start;
+    const handle = await fs.promises.open(filePath, 'r');
+    const buffer = Buffer.alloc(length);
+    await handle.read(buffer, 0, length, start);
+    await handle.close();
+    let raw = buffer.toString('utf8');
+    if (start > 0) {
+      raw = '... (parte final do arquivo) ...\n' + raw;
     }
-  },
-  readLogFile: (filename) => {
-    try {
-      return fs.readFileSync(path.join(LOG_DIR, filename), 'utf8');
-    } catch {
-      return 'Erro ao carregar log.';
+
+    const lines = raw.split('\n').filter(Boolean);
+    const isJson = filename.endsWith('.jsonl');
+    const display = lines.filter((line) => {
+      return matchesFilters(line, levelFilters, search, isJson);
+    });
+
+    return {
+      display,
+      meta: { size: stats.size, mtime: stats.mtimeMs },
+      truncated: start > 0
+    };
+  } catch (error) {
+    console.error('Erro ao ler log', error);
+    return {
+      display: ['Erro ao carregar o log: ' + error.message],
+      meta: { size: 0, mtime: Date.now() },
+      truncated: false
+    };
+  }
+}
+
+function matchesFilters(line, levelFilters, search, isJson) {
+  const sanitizedSearch = (search || '').trim().toLowerCase();
+  let levelPass = true;
+
+  if (levelFilters.length) {
+    if (isJson) {
+      try {
+        const parsed = JSON.parse(line);
+        levelPass = levelFilters.includes(parsed.level);
+      } catch {
+        levelPass = true;
+      }
+    } else {
+      const marker = line.match(/\[(\w+)\]/);
+      if (marker) {
+        const normalized = TEXT_LEVEL_MAP[marker[1].toLowerCase()] || marker[1].toLowerCase();
+        levelPass = levelFilters.includes(normalized);
+      }
     }
   }
+
+  if (!levelPass) {
+    return false;
+  }
+
+  if (sanitizedSearch) {
+    return line.toLowerCase().includes(sanitizedSearch);
+  }
+
+  return true;
+}
+
+contextBridge.exposeInMainWorld('logViewer', {
+  listLogFiles,
+  readLogTail
 });
