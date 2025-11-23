@@ -14,7 +14,7 @@ const { openLogViewer } = require('./core/windows/logViewer');
 const { createTestPrint } = require('./core/windows/testPrint');
 const trayManager = require('./core/windows/tray');
 const { registerPrinterHandlers } = require('./core/ipc/printers');
-const { attachAutoUpdaterHandlers } = require('./core/updater');
+const { attachAutoUpdaterHandlers, checkForUpdates } = require('./core/updater');
 
 /* ---------- store ---------- */
 const store = new Store({
@@ -28,7 +28,7 @@ let printing = false; // será alterado depois
    1. Helpers
 ========================================================= */
 function toast(msg) {
-  new Notification({ title: 'JV-Printer', body: msg }).show();
+  new Notification({ title: 'JV-Printer', body: msg, icon: path.join(__dirname, 'assets/icon.png') }).show();
 }
 
 function hasValidConfig() {
@@ -37,6 +37,10 @@ function hasValidConfig() {
 
 function rebuildTrayMenu() {
   trayManager.rebuildMenu();
+}
+
+function handleUpdateCheck() {
+  checkForUpdates(autoUpdater, { toast, warn });
 }
 
 function togglePrint() {
@@ -72,8 +76,10 @@ function abrirAjuda() {
   }
 }
 
+attachAutoUpdaterHandlers(autoUpdater, { toast });
+
 /* =========================================================
-   2. App ready
+  2. App ready
 ========================================================= */
 app.whenReady().then(() => {
   info('Aplicação pronta para uso', {
@@ -87,9 +93,11 @@ app.whenReady().then(() => {
       createTestPrint,
       openLogViewer,
       abrirPastaLogs,
-      abrirAjuda
+      abrirAjuda,
+      checkUpdates: handleUpdateCheck
     },
-    () => printing
+    () => printing,
+    app.getVersion()
   );
 
   // Cria menu inicial (printing ainda false)
@@ -113,22 +121,13 @@ app.whenReady().then(() => {
   }
 
   // Auto update: verifica e aplica (silencioso)
-  try {
-    autoUpdater.checkForUpdatesAndNotify();
-  } catch (e) {
-    // Falha silenciosa
-    warn('Falha ao checar atualizações automáticas', {
-      metadata: { error: e }
-    });
-  }
+  handleUpdateCheck();
 });
-
-attachAutoUpdaterHandlers(autoUpdater);
 
 // (Atualização já aplicada na fila acima)
 
 /* =========================================================
-   3. Janelas nunca fecham o app (fica só no tray)
+  3. Janelas nunca fecham o app (fica só no tray)
 ========================================================= */
 app.on('window-all-closed', e => e.preventDefault());
 

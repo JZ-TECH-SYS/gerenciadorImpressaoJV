@@ -3,6 +3,7 @@ const { Menu, Tray } = require('electron');
 let trayInstance = null;
 let actions = null;
 let getPrinting = () => false;
+let appVersion = '?.?.?';
 
 function buildMenuTemplate(printing, callbacks) {
   const {
@@ -11,7 +12,8 @@ function buildMenuTemplate(printing, callbacks) {
     createTestPrint,
     openLogViewer,
     abrirPastaLogs,
-    abrirAjuda
+    abrirAjuda,
+    checkUpdates
   } = callbacks;
 
   return [
@@ -26,12 +28,18 @@ function buildMenuTemplate(printing, callbacks) {
     { label: '📁 Abrir Pasta de Logs', click: abrirPastaLogs },
     { label: '❓ Ajuda (Problemas)', click: abrirAjuda },
     { type: 'separator' },
+    {
+      label: `Versão ${appVersion}`,
+      click: () => checkUpdates?.(),
+      enabled: !!checkUpdates
+    },
     { label: '🚪 Sair', role: 'quit' }
   ];
 }
 
-function init(iconPath, callbackSet, printingState) {
+function init(iconPath, callbackSet, printingState, version = '?.?.?') {
   actions = callbackSet;
+  appVersion = version;
   if (typeof printingState === 'function') {
     getPrinting = printingState;
   }
