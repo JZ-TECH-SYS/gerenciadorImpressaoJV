@@ -14,7 +14,7 @@ const TEXT_LEVEL_MAP = {
 function listLogFiles() {
   try {
     return fs.readdirSync(LOG_DIR)
-      .filter((file) => file.endsWith('.log') || file.endsWith('.jsonl'))
+      .filter((file) => file.endsWith('.jsonl'))
       .map((file) => {
         const stats = fs.statSync(path.join(LOG_DIR, file));
         return { name: file, size: stats.size, mtime: stats.mtimeMs };
@@ -48,10 +48,7 @@ async function readLogTail({
     const buffer = Buffer.alloc(length);
     await handle.read(buffer, 0, length, start);
     await handle.close();
-    let raw = buffer.toString('utf8');
-    if (start > 0) {
-      raw = '... (parte final do arquivo) ...\n' + raw;
-    }
+    const raw = buffer.toString('utf8');
 
     const lines = raw.split('\n').filter(Boolean);
     const isJson = filename.endsWith('.jsonl');

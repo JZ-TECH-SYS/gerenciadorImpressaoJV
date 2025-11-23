@@ -5,6 +5,7 @@ const os = require('os');
 const RETENCAO_DIAS = 7;
 const MAX_FILE_BYTES = 3 * 1024 * 1024; // 3MB por arquivo antes de rotacionar
 const LOG_DIR = path.join(os.tmpdir(), 'jv-printer', 'logs');
+const WRITE_PLAIN_LOG = false; // padroniza saída em JSON Lines
 const LOG_CHANNELS = {
   system: 'log-sistema',
   windows: 'log-win'
@@ -76,6 +77,17 @@ function sanitizeMetadata(metadata = {}) {
   return entries.join(' | ');
 }
 
+function prepararConteudoParaLog(conteudo, { maxLength = 24 * 1024 } = {}) {
+  if (typeof conteudo !== 'string') return null;
+  const normalized = conteudo.replace(/\r\n/g, '\n').trim();
+  if (!normalized) return null;
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  const remainder = normalized.length - maxLength;
+  return `${normalized.slice(0, maxLength)}\n... [truncado: +${remainder} caracteres]`;
+}
+
 function appendLine(filePath, line) {
   rotateFileIfNeeded(filePath);
   fs.promises.appendFile(filePath, line, 'utf8').catch((error) => {
@@ -88,9 +100,6 @@ function log(message, options = {}) {
   const metadata = options.metadata || {};
   const channel = options.channel || 'system';
   const timestamp = new Date();
-  const levelName = (LEVEL_LABEL[level] || level || 'INFO').toUpperCase();
-  const metaText = sanitizeMetadata(metadata);
-  const textLine = `[${formatTimestamp(timestamp)}] [${levelName}] ${message}${metaText ? ' | ' + metaText : ''}${os.EOL}`;
   const jsonLine = JSON.stringify({
     timestamp: timestamp.toISOString(),
     level,
@@ -99,7 +108,12 @@ function log(message, options = {}) {
     metadata
   }) + os.EOL;
 
-  appendLine(getLogFilePath(channel, 'log'), textLine);
+  if (WRITE_PLAIN_LOG) {
+    const levelName = (LEVEL_LABEL[level] || level || 'INFO').toUpperCase();
+    const metaText = sanitizeMetadata(metadata);
+    const textLine = `[${formatTimestamp(timestamp)}] [${levelName}] ${message}${metaText ? ' | ' + metaText : ''}${os.EOL}`;
+    appendLine(getLogFilePath(channel, 'log'), textLine);
+  }
   appendLine(getLogFilePath(channel, 'jsonl'), jsonLine);
 }
 
@@ -118,6 +132,10 @@ function logImpressao(impressora, conteudo, jobId = null) {
   const mensagem = jobId
     ? `IMPRESSAO - Impressora: ${impressora} | JobID: ${jobId}`
     : `IMPRESSAO - Impressora: ${impressora}`;
+  const conteudoLog = prepararConteudoParaLog(conteudo);
+  if (conteudoLog) {
+    meta.conteudo = conteudoLog;
+  }
   log(mensagem, { level: jobId ? 'info' : 'warn', metadata: meta });
 }
 
