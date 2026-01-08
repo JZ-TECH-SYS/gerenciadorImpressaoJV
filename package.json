@@ -9,6 +9,7 @@
     "start": "electron .",
     "dev": "nodemon --exec electron .",
     "pack": "electron-builder --dir",
+    "build": "electron-builder",
     "dist": "electron-builder",
     "dist:all": "npm run dist:win32 && npm run dist:win64",
     "dist:win32": "electron-builder --win --ia32 --config.directories.output=dist/win32",
@@ -57,7 +58,7 @@
         "AppImage",
         "deb"
       ],
-      "icon": "build/iconLinux.png",
+      "icon": "build/icon.png",
       "category": "Utility",
       "artifactName": "jv-printer-${version}-${arch}.${ext}",
       "maintainer": "JZ-TECH-SYS",
