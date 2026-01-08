@@ -168,7 +168,9 @@ function getCaminhoLogs() {
 
 function criarArquivoAjuda() {
   const caminhoAjuda = path.join(LOG_DIR, 'SOLUCAO_PROBLEMAS.txt');
-  const conteudoAjuda = `================================================================================
+  const isWindows = os.platform() === 'win32';
+  
+  const conteudoWindows = `================================================================================
     GUIA DE SOLUCAO DE PROBLEMAS - Sistema de Impressao JV
 ================================================================================
 
@@ -219,6 +221,70 @@ Desenvolvido por JZ-TECH-SYS
 Sistema de Gerenciamento de Impressao JV
 Data de criacao: ${new Date().toLocaleString('pt-BR')}
 ================================================================================`;
+
+  const conteudoLinux = `================================================================================
+    GUIA DE SOLUCAO DE PROBLEMAS - Sistema de Impressao JV
+================================================================================
+
+CONFIGURACAO DO CUPS (Linux Mint / Ubuntu / Debian)
+
+Se o sistema nao conseguir imprimir ou detectar impressoras, verifique:
+
+COMANDOS PARA EXECUTAR NO TERMINAL:
+
+1. Verificar se o CUPS esta instalado e rodando:
+   sudo systemctl status cups
+
+2. Iniciar o servico CUPS se necessario:
+   sudo systemctl start cups
+   sudo systemctl enable cups
+
+3. Listar impressoras disponiveis:
+   lpstat -p -d
+
+4. Verificar se sua impressora esta instalada:
+   lpstat -a
+
+5. Fazer uma impressao de teste:
+   echo "Teste JV-Printer" | lp -d NOME_DA_SUA_IMPRESSORA
+
+6. Acessar interface web do CUPS:
+   Abra o navegador em: http://localhost:631
+
+INSTALACAO DO CUPS (se nao estiver instalado):
+
+   sudo apt update
+   sudo apt install cups cups-client
+
+PERMISSOES:
+
+1. Adicionar seu usuario ao grupo lpadmin:
+   sudo usermod -aG lpadmin $USER
+
+2. Fazer logout e login novamente para aplicar
+
+LOCALIZACAO DOS LOGS:
+${LOG_DIR}
+
+ARQUIVOS DE LOG:
+- YYYY-MM-DD-log-sistema.jsonl - Linha única em JSON por evento
+- YYYY-MM-DD-log-sistema.log - Logs do sistema de impressao (se habilitado)
+
+SE AINDA NAO FUNCIONAR:
+
+1. Verifique se a impressora esta ligada e conectada
+2. Faca uma impressao de teste via interface do CUPS (localhost:631)
+3. Verifique os logs do CUPS: sudo cat /var/log/cups/error_log
+4. Entre em contato com o suporte tecnico
+
+================================================================================
+Desenvolvido por JZ-TECH-SYS
+Sistema de Gerenciamento de Impressao JV
+Data de criacao: ${new Date().toLocaleString('pt-BR')}
+================================================================================`;
+
+  const conteudoAjuda = isWindows ? conteudoWindows : conteudoLinux;
+  
   try {
     fs.writeFileSync(caminhoAjuda, conteudoAjuda, 'utf8');
     log('📄 Arquivo de ajuda criado: ' + caminhoAjuda, { level: 'info' });
@@ -243,6 +309,7 @@ module.exports = {
   getLogFilePath,
   getCaminhoLogs,
   abrirPastaLogs,
+  criarArquivoAjuda,
   getLogDir: getCaminhoLogs,
   LOG_DIR
 };

@@ -1,14 +1,27 @@
 // core/utils/windowsJobMonitor.js
 const { spawn } = require('child_process');
+const os = require('os');
 const { log } = require('./logger');
 
-class WindowsJobMonitor {
+const isWindows = os.platform() === 'win32';
+
+class PrintJobMonitor {
   constructor() {
     this.recentJobs = new Map(); // Armazena jobs recentes
     this.jobCounter = Date.now() % 1000; // Contador para Job IDs únicos
   }
-  // Monitora eventos de impressão do Windows  
+
+  // Monitora eventos de impressão - multiplataforma
   async getRecentPrintJobs() {
+    if (isWindows) {
+      return this._getWindowsPrintJobs();
+    } else {
+      return this._getLinuxPrintJobs();
+    }
+  }
+
+  // Monitora eventos de impressão do Windows  
+  _getWindowsPrintJobs() {
     return new Promise((resolve, reject) => {
       // Usa PowerShell com sintaxe mais simples
       const cmd = spawn('powershell', [
@@ -95,22 +108,95 @@ class WindowsJobMonitor {
     });
   }
 
+  // Monitora eventos de impressão do Linux (CUPS)
+  _getLinuxPrintJobs() {
+    return new Promise((resolve, reject) => {
+      // Usa lpstat para listar jobs de impressão do CUPS
+      const cmd = spawn('lpstat', ['-W', 'completed', '-o']);
+
+      let output = '';
+      let stderrData = '';
+
+      cmd.stdout.on('data', (data) => {
+        output += data.toString();
+      });
+
+      cmd.stderr.on('data', (data) => {
+        stderrData += data.toString();
+      });
+
+      cmd.on('close', (code) => {
+        const jobs = [];
+        
+        if (output.trim()) {
+          // Formato lpstat: "printer-123 user 1024 Mon 06 Jan 2025 10:30:00"
+          const lines = output.trim().split('\n').filter(line => line.trim());
+          
+          for (const line of lines) {
+            const match = line.match(/^(\S+)-(\d+)\s+(\S+)\s+(\d+)\s+(.+)$/);
+            if (match) {
+              jobs.push({
+                timestamp: match[5] || 'Desconhecido',
+                jobId: match[2],
+                printer: match[1],
+                docName: 'Documento'
+              });
+            }
+          }
+        }
+        
+        log('CUPS_LPSTAT_EXECUTADO', {
+          channel: 'system',
+          metadata: { codigo: code, jobs: jobs.length }
+        });
+        
+        if (stderrData.trim()) {
+          log('CUPS_STDERR', {
+            channel: 'system',
+            metadata: { saida: stderrData }
+          });
+        }
+        
+        if (jobs.length > 0) {
+          log('JOBS_LINUX_ENCONTRADOS', {
+            channel: 'system',
+            metadata: {
+              jobId: jobs[0].jobId,
+              impressora: jobs[0].printer
+            }
+          });
+        }
+        
+        resolve(jobs);
+      });
+
+      cmd.on('error', (err) => {
+        log('CUPS_ERRO', {
+          channel: 'system',
+          metadata: { erro: err.message }
+        });
+        resolve([]); // Retorna array vazio em caso de erro
+      });
+    });
+  }
+
   // Busca o Job ID mais recente para uma impressora específica
   async getLatestJobId(printerName) {
     try {
       const jobs = await this.getRecentPrintJobs();
+      const channel = isWindows ? 'windows' : 'system';
       log('BUSCA_JOB_ID', {
-        channel: 'windows',
+        channel,
         metadata: { impressora: printerName, quantidade: jobs.length }
       });
       
       const job = jobs
-        .filter(j => j.printer && j.printer.includes(printerName))
+        .filter(j => j.printer && j.printer.toLowerCase().includes(printerName.toLowerCase()))
         .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
       
       if (job) {
         log('JOB_ID_ENCONTRADO', {
-          channel: 'windows',
+          channel,
           metadata: { jobId: job.jobId, impressora: job.printer, documento: job.docName }
         });
       }
@@ -118,11 +204,11 @@ class WindowsJobMonitor {
       return job ? job.jobId : null;
     } catch (error) {
       log('ERRO_BUSCA_JOB_ID', {
-        channel: 'windows',
+        channel: isWindows ? 'windows' : 'system',
         metadata: { error }
       });
-      log(`Erro ao buscar Job ID do Windows: ${error.message}`, {
-        metadata: { area: 'windowsJobMonitor', error }
+      log(`Erro ao buscar Job ID: ${error.message}`, {
+        metadata: { area: 'printJobMonitor', error }
       });
       return null;
     }
@@ -131,8 +217,9 @@ class WindowsJobMonitor {
   // Busca Job ID com timeout
   async waitForJobId(printerName, timeoutMs = 5000) {
     const startTime = Date.now();
+    const prefix = isWindows ? 'WIN' : 'LNX';
     
-    // Primeiro tenta capturar Job ID real do Windows
+    // Primeiro tenta capturar Job ID real
     while (Date.now() - startTime < timeoutMs) {
       const jobId = await this.getLatestJobId(printerName);
       if (jobId && !jobId.startsWith('SIM_')) {
@@ -143,9 +230,9 @@ class WindowsJobMonitor {
     
     // Se não encontrou Job ID real, gera um único e confiável
     this.jobCounter++;
-    const uniqueJobId = `WIN_${this.jobCounter}`;
+    const uniqueJobId = `${prefix}_${this.jobCounter}`;
     log('JOB_ID_GERADO', {
-      channel: 'windows',
+      channel: isWindows ? 'windows' : 'system',
       metadata: { jobId: uniqueJobId, impressora: printerName, motivo: 'timeout' }
     });
     
@@ -153,4 +240,4 @@ class WindowsJobMonitor {
   }
 }
 
-module.exports = new WindowsJobMonitor();
+module.exports = new PrintJobMonitor();

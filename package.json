@@ -13,6 +13,8 @@
     "dist:all": "npm run dist:win32 && npm run dist:win64",
     "dist:win32": "electron-builder --win --ia32 --config.directories.output=dist/win32",
     "dist:win64": "electron-builder --win --x64 --config.directories.output=dist/win64",
+    "dist:linux": "electron-builder --linux --x64",
+    "dist:linux-arm64": "electron-builder --linux --arm64",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
@@ -49,6 +51,23 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "JV Printer"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "build/iconLinux.png",
+      "category": "Utility",
+      "artifactName": "jv-printer-${version}-${arch}.${ext}",
+      "maintainer": "JZ-TECH-SYS",
+      "desktop": {
+        "Name": "JV Printer",
+        "Comment": "Gerenciador de impressão inteligente",
+        "Terminal": "false",
+        "Type": "Application",
+        "Categories": "Utility;Printing;"
+      }
     },
     "publish": [
       {
