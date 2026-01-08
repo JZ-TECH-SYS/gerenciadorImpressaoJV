@@ -7,6 +7,8 @@ const verificarCompartilhamento = require("./verificarCompartilhamento");
 const { gerarNomeUnico } = require("../utils/gerarNomeUnico");
 const { warn, error, info } = require("../utils/logger");
 
+const isWindows = os.platform() === "win32";
+
 function imprimirTexto({ impressora, msg }) {
   return new Promise(async (resolve) => {
     if (!impressora || !msg) {
@@ -16,27 +18,39 @@ function imprimirTexto({ impressora, msg }) {
       return resolve({ status: "error", message: "Dados inválidos" });
     }
 
-    const compartilhada = await verificarCompartilhamento(impressora);
-    if (!compartilhada) {
-      warn('Impressora não está compartilhada', {
-        metadata: { area: 'imprimirTexto', impressora }
-      });
-      return resolve({ status: "error", message: "Impressora não compartilhada" });
+    // Verificação de compartilhamento só no Windows
+    if (isWindows) {
+      const compartilhada = await verificarCompartilhamento(impressora);
+      if (!compartilhada) {
+        warn('Impressora não está compartilhada', {
+          metadata: { area: 'imprimirTexto', impressora }
+        });
+        return resolve({ status: "error", message: "Impressora não compartilhada" });
+      }
     }
 
     const filePath = path.join(os.tmpdir(), gerarNomeUnico("txt"));
     fs.writeFileSync(filePath, msg, "utf8");
 
-    exec(`copy "${filePath}" \\localhost\"${impressora}"`, (operationError) => {
+    // Comando específico por plataforma
+    const comando = isWindows
+      ? `copy "${filePath}" \\\\localhost\\"${impressora}"`
+      : `lp -d "${impressora}" "${filePath}"`;
+
+    exec(comando, (operationError) => {
       if (operationError) {
         error('Erro ao enviar arquivo para impressora', {
-          metadata: { error: operationError, impressora }
+          metadata: { error: operationError, impressora, plataforma: isWindows ? 'windows' : 'linux' }
         });
+      }
+      // Remove arquivo temporário no Linux
+      if (!isWindows) {
+        fs.unlink(filePath, () => {});
       }
     });
 
     info('Comando de impressão enviado para fila', {
-      metadata: { impressora, arquivo: filePath }
+      metadata: { impressora, arquivo: filePath, plataforma: isWindows ? 'windows' : 'linux' }
     });
 
     resolve({ status: "success", message: "Impresso com sucesso", acao: "imprimir" });
