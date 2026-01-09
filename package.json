@@ -30,7 +30,8 @@
     "eslint": "^8.57.1",
     "eslint-config-airbnb-base": "^15.0.0",
     "eslint-plugin-import": "^2.32.0",
-    "nodemon": "^3.1.10"
+    "nodemon": "^3.1.10",
+    "sharp": "^0.34.5"
   },
   "build": {
     "appId": "com.jvtech.printer",
@@ -58,16 +59,19 @@
         "AppImage",
         "deb"
       ],
-      "icon": "build/icon.png",
+      "icon": "build/icons",
       "category": "Utility",
       "artifactName": "jv-printer-${version}-${arch}.${ext}",
       "maintainer": "JZ-TECH-SYS",
+      "executableName": "jv-printer",
       "desktop": {
         "Name": "JV Printer",
         "Comment": "Gerenciador de impressão inteligente",
         "Terminal": "false",
         "Type": "Application",
-        "Categories": "Utility;Printing;"
+        "Categories": "Utility;Printing;",
+        "Icon": "jv-printer",
+        "StartupWMClass": "jv-printer"
       }
     },
     "publish": [
