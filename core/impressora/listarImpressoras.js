@@ -21,13 +21,15 @@ async function listarImpressoras() {
       // Linux: tenta múltiplos métodos para listar impressoras
       
       // Método 1: lpstat -p (lista impressoras)
+      // Suporta saída em português ("impressora") e inglês ("printer")
       try {
         const { stdout: lpstatOutput } = await execPromise("lpstat -p 2>/dev/null");
         if (lpstatOutput && lpstatOutput.trim()) {
           const lpstatNomes = lpstatOutput.split("\n")
             .map(line => {
-              // Formato: "printer NOME is idle..." ou "printer NOME disabled..."
-              const match = line.match(/^printer\s+(\S+)/i);
+              // Formato PT: "impressora NOME está inativa..."
+              // Formato EN: "printer NOME is idle..."
+              const match = line.match(/^(?:printer|impressora)\s+(\S+)/i);
               return match ? match[1] : null;
             })
             .filter(Boolean);
@@ -35,7 +37,7 @@ async function listarImpressoras() {
           if (lpstatNomes.length > 0) {
             nomes = lpstatNomes;
             info('Impressoras encontradas via lpstat -p', {
-              metadata: { total: nomes.length }
+              metadata: { total: nomes.length, impressoras: nomes }
             });
           }
         }
@@ -52,8 +54,9 @@ async function listarImpressoras() {
           if (lpstatAOutput && lpstatAOutput.trim()) {
             const lpstatANomes = lpstatAOutput.split("\n")
               .map(line => {
-                // Formato: "NOME accepting requests since..."
-                const match = line.match(/^(\S+)\s+accepting/i);
+                // Formato PT: "NOME está aceitando requisições desde..."
+                // Formato EN: "NOME accepting requests since..."
+                const match = line.match(/^(\S+)\s+(?:accepting|está\s+aceitando)/i);
                 return match ? match[1] : null;
               })
               .filter(Boolean);
@@ -61,7 +64,7 @@ async function listarImpressoras() {
             if (lpstatANomes.length > 0) {
               nomes = lpstatANomes;
               info('Impressoras encontradas via lpstat -a', {
-                metadata: { total: nomes.length }
+                metadata: { total: nomes.length, impressoras: nomes }
               });
             }
           }
@@ -72,18 +75,21 @@ async function listarImpressoras() {
         }
       }
       
-      // Método 3: lpinfo -v (lista dispositivos disponíveis)
+      // Método 3: lpstat -d (impressora padrão)
       if (nomes.length === 0) {
         try {
           const { stdout: lpinfoOutput } = await execPromise("lpstat -d 2>/dev/null");
-          if (lpinfoOutput && lpinfoOutput.includes("system default destination:")) {
-            const match = lpinfoOutput.match(/system default destination:\s*(\S+)/);
-            if (match && match[1]) {
-              nomes = [match[1]];
-              info('Impressora padrão encontrada via lpstat -d', {
-                metadata: { impressora: match[1] }
-              });
-            }
+          // Formato PT: "destino padrão do sistema: NOME"
+          // Formato EN: "system default destination: NOME"
+          const matchPT = lpinfoOutput.match(/destino\s+padr[aã]o\s+do\s+sistema:\s*(\S+)/i);
+          const matchEN = lpinfoOutput.match(/system\s+default\s+destination:\s*(\S+)/i);
+          const match = matchPT || matchEN;
+          
+          if (match && match[1]) {
+            nomes = [match[1]];
+            info('Impressora padrão encontrada via lpstat -d', {
+              metadata: { impressora: match[1] }
+            });
           }
         } catch (e) {
           // Ignora erro silenciosamente

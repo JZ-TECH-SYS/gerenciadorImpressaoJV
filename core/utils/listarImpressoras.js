@@ -21,12 +21,15 @@ async function listarImpressoras() {
       // Linux: tenta múltiplos métodos para listar impressoras
       
       // Método 1: lpstat -p (lista impressoras)
+      // Suporta saída em português ("impressora") e inglês ("printer")
       try {
         const { stdout: lpstatOutput } = await execPromise("lpstat -p 2>/dev/null");
         if (lpstatOutput && lpstatOutput.trim()) {
           const lpstatNomes = lpstatOutput.split("\n")
             .map(line => {
-              const match = line.match(/^printer\s+(\S+)/i);
+              // Formato PT: "impressora NOME está inativa..."
+              // Formato EN: "printer NOME is idle..."
+              const match = line.match(/^(?:printer|impressora)\s+(\S+)/i);
               return match ? match[1] : null;
             })
             .filter(Boolean);
@@ -46,7 +49,9 @@ async function listarImpressoras() {
           if (lpstatAOutput && lpstatAOutput.trim()) {
             const lpstatANomes = lpstatAOutput.split("\n")
               .map(line => {
-                const match = line.match(/^(\S+)\s+accepting/i);
+                // Formato PT: "NOME está aceitando requisições desde..."
+                // Formato EN: "NOME accepting requests since..."
+                const match = line.match(/^(\S+)\s+(?:accepting|está\s+aceitando)/i);
                 return match ? match[1] : null;
               })
               .filter(Boolean);
@@ -59,10 +64,26 @@ async function listarImpressoras() {
           // Ignora
         }
       }
+      
+      // Método 3: lpstat -d (impressora padrão)
+      if (nomes.length === 0) {
+        try {
+          const { stdout: lpstatDOutput } = await execPromise("lpstat -d 2>/dev/null");
+          const matchPT = lpstatDOutput.match(/destino\s+padr[aã]o\s+do\s+sistema:\s*(\S+)/i);
+          const matchEN = lpstatDOutput.match(/system\s+default\s+destination:\s*(\S+)/i);
+          const match = matchPT || matchEN;
+          
+          if (match && match[1]) {
+            nomes = [match[1]];
+          }
+        } catch (e) {
+          // Ignora
+        }
+      }
     }
     
     info('Lista de impressoras atualizada (utilitário)', {
-      metadata: { total: nomes.length, plataforma: isWindows ? 'windows' : 'linux' }
+      metadata: { total: nomes.length, plataforma: isWindows ? 'windows' : 'linux', impressoras: nomes }
     });
 
     return {
