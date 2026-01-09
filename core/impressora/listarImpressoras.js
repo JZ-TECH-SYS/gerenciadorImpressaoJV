@@ -2,32 +2,112 @@ const os = require("os");
 const { exec } = require("child_process");
 const util = require("util");
 const execPromise = util.promisify(exec);
-const { info, error } = require("../utils/logger");
+const { info, warn, error } = require("../utils/logger");
 
 const isWindows = os.platform() === "win32";
 
 async function listarImpressoras() {
   try {
-    const cmd = isWindows ? "wmic printer get name" : "lpstat -p";
-    const { stdout } = await execPromise(cmd);
+    let nomes = [];
     
-    let nomes;
     if (isWindows) {
-      // Windows: saída do WMIC "Name\nImpressora1\nImpressora2"
+      // Windows: usa WMIC
+      const cmd = "wmic printer get name";
+      const { stdout } = await execPromise(cmd);
       nomes = stdout.split("\n").map(l => l.trim())
         .filter(l => l && l !== "Name");
+        
     } else {
-      // Linux: saída do lpstat "printer Impressora1 is idle..."
-      nomes = stdout.split("\n")
-        .map(line => {
-          const match = line.match(/^printer\s+(\S+)/);
-          return match ? match[1] : null;
-        })
-        .filter(Boolean);
+      // Linux: tenta múltiplos métodos para listar impressoras
+      
+      // Método 1: lpstat -p (lista impressoras)
+      try {
+        const { stdout: lpstatOutput } = await execPromise("lpstat -p 2>/dev/null");
+        if (lpstatOutput && lpstatOutput.trim()) {
+          const lpstatNomes = lpstatOutput.split("\n")
+            .map(line => {
+              // Formato: "printer NOME is idle..." ou "printer NOME disabled..."
+              const match = line.match(/^printer\s+(\S+)/i);
+              return match ? match[1] : null;
+            })
+            .filter(Boolean);
+          
+          if (lpstatNomes.length > 0) {
+            nomes = lpstatNomes;
+            info('Impressoras encontradas via lpstat -p', {
+              metadata: { total: nomes.length }
+            });
+          }
+        }
+      } catch (e) {
+        warn('lpstat -p falhou, tentando alternativa', {
+          metadata: { erro: e.message }
+        });
+      }
+      
+      // Método 2: lpstat -a (lista impressoras aceitando jobs)
+      if (nomes.length === 0) {
+        try {
+          const { stdout: lpstatAOutput } = await execPromise("lpstat -a 2>/dev/null");
+          if (lpstatAOutput && lpstatAOutput.trim()) {
+            const lpstatANomes = lpstatAOutput.split("\n")
+              .map(line => {
+                // Formato: "NOME accepting requests since..."
+                const match = line.match(/^(\S+)\s+accepting/i);
+                return match ? match[1] : null;
+              })
+              .filter(Boolean);
+            
+            if (lpstatANomes.length > 0) {
+              nomes = lpstatANomes;
+              info('Impressoras encontradas via lpstat -a', {
+                metadata: { total: nomes.length }
+              });
+            }
+          }
+        } catch (e) {
+          warn('lpstat -a também falhou', {
+            metadata: { erro: e.message }
+          });
+        }
+      }
+      
+      // Método 3: lpinfo -v (lista dispositivos disponíveis)
+      if (nomes.length === 0) {
+        try {
+          const { stdout: lpinfoOutput } = await execPromise("lpstat -d 2>/dev/null");
+          if (lpinfoOutput && lpinfoOutput.includes("system default destination:")) {
+            const match = lpinfoOutput.match(/system default destination:\s*(\S+)/);
+            if (match && match[1]) {
+              nomes = [match[1]];
+              info('Impressora padrão encontrada via lpstat -d', {
+                metadata: { impressora: match[1] }
+              });
+            }
+          }
+        } catch (e) {
+          // Ignora erro silenciosamente
+        }
+      }
+      
+      // Método 4: Ler diretamente do CUPS
+      if (nomes.length === 0) {
+        try {
+          const { stdout: cupsOutput } = await execPromise("cat /etc/cups/printers.conf 2>/dev/null | grep '<Printer' | sed 's/<Printer //g' | sed 's/>//g'");
+          if (cupsOutput && cupsOutput.trim()) {
+            nomes = cupsOutput.trim().split("\n").filter(Boolean);
+            info('Impressoras encontradas via printers.conf', {
+              metadata: { total: nomes.length }
+            });
+          }
+        } catch (e) {
+          // Ignora erro
+        }
+      }
     }
     
     info('Lista de impressoras atualizada', {
-      metadata: { comando: cmd, total: nomes.length, plataforma: isWindows ? 'windows' : 'linux' }
+      metadata: { total: nomes.length, plataforma: isWindows ? 'windows' : 'linux', impressoras: nomes }
     });
 
     return {
