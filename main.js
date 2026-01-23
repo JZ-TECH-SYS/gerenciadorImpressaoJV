@@ -12,6 +12,7 @@ const { startWatcher, stopWatcher } = require('./core/api/ticketWatcher');
 const { createSettings } = require('./core/windows/settings');
 const { openLogViewer } = require('./core/windows/logViewer');
 const { createTestPrint } = require('./core/windows/testPrint');
+const { createPainelMyZap } = require('./core/windows/painelMyZap');
 const trayManager = require('./core/windows/tray');
 const { registerPrinterHandlers } = require('./core/ipc/printers');
 const { attachAutoUpdaterHandlers, checkForUpdates } = require('./core/updater');
@@ -94,7 +95,8 @@ app.whenReady().then(() => {
       openLogViewer,
       abrirPastaLogs,
       abrirAjuda,
-      checkUpdates: handleUpdateCheck
+      checkUpdates: handleUpdateCheck,
+      createPainelMyZap
     },
     () => printing,
     app.getVersion()
