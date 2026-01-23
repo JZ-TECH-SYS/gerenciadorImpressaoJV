@@ -13,7 +13,8 @@ function buildMenuTemplate(printing, callbacks) {
     openLogViewer,
     abrirPastaLogs,
     abrirAjuda,
-    checkUpdates
+    checkUpdates,
+    createPainelMyZap
   } = callbacks;
 
   return [
@@ -22,6 +23,12 @@ function buildMenuTemplate(printing, callbacks) {
       label: printing ? '⛔ Parar impressão' : '▶️ Iniciar impressão',
       click: togglePrint
     },
+    { type: 'separator' },
+    {
+      label: '💬 WhatsApp',
+      enabled: false
+    },
+    { label: '🔗 Painel MyZap', click: createPainelMyZap },
     { type: 'separator' },
     { label: '🖨️ Testar Impressão', click: createTestPrint },
     { label: '📄 Ver Logs', click: openLogViewer },

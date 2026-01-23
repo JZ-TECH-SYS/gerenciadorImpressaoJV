@@ -1,0 +1,45 @@
+body {
+    background-color: #020617;
+    color: #e5e7eb;
+}
+
+.card {
+    background-color: #0f172a;
+    border: 1px solid #1e293b;
+}
+
+.title-status {
+    color: #fff;
+}
+
+.nav-tabs .nav-link {
+    color: #cbd5f5;
+}
+
+.nav-tabs .nav-link.active {
+    background-color: #020617;
+    border-color: #1e293b #1e293b #020617;
+    color: #10b981;
+}
+
+.status-badge {
+    font-size: 0.85rem;
+    padding: 6px 10px;
+}
+
+.text-muted-small {
+    font-size: 0.85rem;
+    color: #94a3b8;
+}
+
+.form-control,
+.form-select {
+    background-color: #020617;
+    border: 1px solid #334155;
+    color: #e5e7eb;
+}
+
+.form-control:focus {
+    border-color: #10b981;
+    box-shadow: none;
+}

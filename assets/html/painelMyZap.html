@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Painel MyZap</title>
+    <link rel="stylesheet" href="../css/bootstrap5.0.2.min.css" />
+    <link rel="stylesheet" href="../css/painelMyZap.css" />
+</head>
+
+<body>
+    <div class="container py-4">
+        <div class="card shadow-sm">
+            <div class="card-header">
+                <h5 class="mb-0">📊 Painel MyZap</h5>
+            </div>
+
+            <div class="card-body">
+                <!-- Tabs -->
+                <ul class="nav nav-tabs mb-3" id="myzapTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="status-tab" data-bs-toggle="tab" data-bs-target="#status"
+                            type="button" role="tab">
+                            📡 Status
+                        </button>
+                    </li>
+
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="config-tab" data-bs-toggle="tab" data-bs-target="#config"
+                            type="button" role="tab">
+                            ⚙ Configurações
+                        </button>
+                    </li>
+                </ul>
+
+                <div class="tab-content">
+                    <!-- ===================== -->
+                    <!-- ABA STATUS -->
+                    <!-- ===================== -->
+                    <div class="tab-pane fade show active" id="status" role="tabpanel">
+                        <div class="list-group list-group-flush">
+
+                            <!-- Status da API -->
+                            <div class="list-group-item bg-transparent border-bottom border-secondary-subtle">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong class="title-status">API MyZap</strong>
+                                        <div class="text-muted-small">
+                                            Verifica se a API está rodando e acessível
+                                        </div>
+                                    </div>
+
+                                    <span id="status-api" class="badge bg-secondary status-badge">
+                                        Não verificado
+                                    </span>
+                                </div>
+                            </div>
+
+                            <!-- Status da instalação -->
+                            <div class="list-group-item bg-transparent border-bottom border-secondary-subtle">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong class="title-status">Instalação</strong>
+                                        <div class="text-muted-small">
+                                            Verifica se o MyZap está instalado no diretório configurado
+                                        </div>
+                                    </div>
+
+                                    <span id="status-installation" class="badge bg-secondary status-badge">
+                                        Não verificado
+                                    </span>
+                                </div>
+                            </div>
+
+                            <!-- Status das configurações -->
+                            <div class="list-group-item bg-transparent">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong class="title-status">Configurações</strong>
+                                        <div class="text-muted-small">
+                                            Valida se SessionKey, diretório e porta estão preenchidos
+                                        </div>
+                                    </div>
+
+                                    <span id="status-config" class="badge bg-secondary status-badge">
+                                        Incompleto
+                                    </span>
+                                </div>
+                            </div>
+
+                        </div>
+
+                        <!-- Ações futuras -->
+                        <div class="mt-4 d-flex gap-2">
+                            <button id="btn-install" class="btn btn-success">
+                                Instalar / Iniciar MyZap
+                            </button>
+
+                            <button id="btn-refresh-status" class="btn btn-outline-light">
+                                Atualizar Status
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- ===================== -->
+                    <!-- ABA CONFIGURAÇÕES -->
+                    <!-- ===================== -->
+                    <div class="tab-pane fade" id="config" role="tabpanel">
+                        <form id="myzap-config-form">
+                            <!-- Diretório -->
+                            <div class="mb-3">
+                                <label class="form-label">Diretório do MyZap</label>
+                                <input type="text" class="form-control" id="input-path"
+                                    placeholder="C:/JzTech/projects/myzap" />
+                            </div>
+
+                            <!-- Porta -->
+                            <div class="mb-3">
+                                <label class="form-label">Porta</label>
+                                <input type="number" class="form-control" id="input-port" placeholder="7418" />
+                            </div>
+
+                            <!-- SessionKey -->
+                            <div class="mb-3">
+                                <label class="form-label">Session Key</label>
+                                <input type="text" class="form-control" id="input-sessionkey"
+                                    placeholder="Informe a SessionKey do MyZap" />
+                            </div>
+
+                            <!-- ApiToken -->
+                            <div class="mb-4">
+                                <label class="form-label">
+                                    API Token
+                                    <span class="text-muted-small">(opcional)</span>
+                                </label>
+                                <input type="text" class="form-control" id="input-apitoken"
+                                    placeholder="Token de autenticação, se aplicável" />
+                            </div>
+
+                            <div class="d-flex gap-2">
+                                <button type="submit" id="btn-save-config" class="btn btn-success">
+                                    Salvar Configurações
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="../js/bootstrap5.0.2.js"></script>
+    <script src="../js/painelMyZap.js"></script>
+</body>
+
+</html>
