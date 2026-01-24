@@ -15,6 +15,7 @@ const { createTestPrint } = require('./core/windows/testPrint');
 const { createPainelMyZap } = require('./core/windows/painelMyZap');
 const trayManager = require('./core/windows/tray');
 const { registerPrinterHandlers } = require('./core/ipc/printers');
+const { registerMyZapHandlers } = require('./core/ipc/myzap');
 const { attachAutoUpdaterHandlers, checkForUpdates } = require('./core/updater');
 
 /* ---------- store ---------- */
@@ -139,6 +140,7 @@ app.on('window-all-closed', e => e.preventDefault());
 ipcMain.handle('settings:get', (_e, key) => store.get(key));
 
 registerPrinterHandlers(ipcMain);
+registerMyZapHandlers(ipcMain);
 
 /* Quando o usuário salva as configurações */
 ipcMain.on('settings-saved', (_e, { idempresa, apiUrl, apiToken, printer }) => {
@@ -154,6 +156,14 @@ ipcMain.on('settings-saved', (_e, { idempresa, apiUrl, apiToken, printer }) => {
     toast('Serviço de impressão iniciado');
     rebuildTrayMenu();
   }
+});
+
+/* Quando o usuário salva as configurações */
+ipcMain.on('myzap-settings-saved', (_e, { myzap_diretorio, myzap_porta, myzap_sessionKey, myzap_apiToken }) => {
+  info('Configurações salvas pelo usuário', {
+    metadata: { myzap_diretorio, myzap_porta, myzap_sessionKey, myzap_apiToken }
+  });
+  store.set({ myzap_diretorio, myzap_porta, myzap_sessionKey, myzap_apiToken });
 });
 
 process.on('uncaughtException', (err) => {
