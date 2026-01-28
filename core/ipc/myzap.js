@@ -1,14 +1,29 @@
 const { warn } = require('../utils/logger');
+const clonarRepositorio = require('../myzap/clonarRepositorio');
 const verificarDiretorio = require('../myzap/verificarDiretorio');
 
 function registerMyZapHandlers(ipcMain) {
     ipcMain.handle('myzap:checkDirectoryHasFiles', async (event, dirPath) => {
         try {
-            console.log('IPC recebido para verificar diretório MyZap:', dirPath);
             const result = await verificarDiretorio(dirPath);
             return result;
         } catch (error) {
             warn('Falha ao verificar diretório via IPC', {
+                metadata: { error }
+            });
+            return {
+                status: 'error',
+                message: error.message || String(error)
+            };
+        }
+    });
+
+    ipcMain.handle('myzap:cloneRepository', async (event, dirPath) => {
+        try {
+            const result = await clonarRepositorio(dirPath);
+            return result;
+        } catch (error) {
+            warn('Falha ao clonar repositório via IPC', {
                 metadata: { error }
             });
             return {
