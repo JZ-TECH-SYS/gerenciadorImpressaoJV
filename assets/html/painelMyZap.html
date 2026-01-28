@@ -92,11 +92,15 @@
 
                         <!-- Ações futuras -->
                         <div class="mt-4 d-flex gap-2">
-                            <button id="btn-install" class="btn btn-success">
-                                Instalar / Iniciar MyZap
+                            <button id="btn-start" class="btn btn-success">
+                                Iniciar MyZap
                             </button>
 
-                            <button id="btn-refresh-status" class="btn btn-outline-light">
+                            <button id="btn-install" class="btn btn-primary" onclick="installMyZap()">
+                                Instalar
+                            </button>
+
+                            <button id="btn-refresh-status" class="btn btn-outline-light" onclick="atualizaStatus()">
                                 Atualizar Status
                             </button>
                         </div>
