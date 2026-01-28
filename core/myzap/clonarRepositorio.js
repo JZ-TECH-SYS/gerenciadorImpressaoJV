@@ -1,116 +1,132 @@
 const { spawn } = require('child_process');
 const { error: logError } = require("../utils/logger");
+const path = require('path');
+const fs = require('fs');
+const AdmZip = require('adm-zip');
 
-// 1. Verifica se existe
+// Função auxiliar para rodar comandos shell de forma limpa
+function rodarComando(comando, args, opcoes = {}) {
+    return new Promise((resolve) => {
+        const proc = spawn(comando, args, { shell: true, ...opcoes });
+
+        proc.stdout.on('data', (data) => console.log(`[${comando}]: ${data}`));
+        proc.stderr.on('data', (data) => console.error(`[${comando}-err]: ${data}`));
+
+        proc.on('close', (code) => resolve(code === 0));
+        proc.on('error', () => resolve(false));
+    });
+}
+
 function verificarDependencia(comando) {
     return new Promise((resolve) => {
-        const check = spawn(comando, ['--version']);
+        const check = spawn(comando, ['--version'], { shell: true });
         check.on('error', () => resolve(false));
         check.on('close', (code) => resolve(code === 0));
     });
 }
 
-// 2. Tenta instalar via Winget (Apenas Windows)
 function tentarInstalar(programa) {
-    return new Promise((resolve) => {
-        console.log(`Tentando instalar ${programa}...`);
+    const wingetIds = {
+        'git': 'Git.Git',
+        'node': 'OpenJS.NodeJS.LTS'
+    };
+    const id = wingetIds[programa];
+    if (!id) return Promise.resolve(false);
 
-        // IDs oficiais do Winget
-        const wingetIds = {
-            'git': 'Git.Git',
-            'node': 'OpenJS.NodeJS.LTS' // Versão LTS é mais segura
-        };
-
-        const id = wingetIds[programa];
-        if (!id) return resolve(false);
-
-        // Comando para instalar silenciosamente e aceitar termos
-        const install = spawn('winget', [
-            'install',
-            '--id', id,
-            '-e',
-            '--source', 'winget',
-            '--accept-package-agreements',
-            '--accept-source-agreements',
-            '--silent' // Tenta não abrir janelas, mas pode pedir permissão de Admin
-        ]);
-
-        install.stdout.on('data', (data) => console.log(`Instalando ${programa}: ${data}`));
-        install.stderr.on('data', (data) => console.log(`Log Instalação: ${data}`));
-
-        install.on('close', (code) => {
-            // Winget retorna 0 para sucesso
-            resolve(code === 0);
-        });
-
-        install.on('error', (err) => {
-            console.error(err);
-            resolve(false);
-        });
-    });
+    return rodarComando('winget', [
+        'install', '--id', id, '-e', '--source', 'winget',
+        '--accept-package-agreements', '--accept-source-agreements', '--silent'
+    ]);
 }
 
 async function clonarRepositorio(dirPath) {
     try {
-        // --- BLOCO DE VERIFICAÇÃO E INSTALAÇÃO DO GIT ---
-        let gitExiste = await verificarDependencia('git');
-
-        if (!gitExiste) {
-            // Tenta instalar
-            const instalou = await tentarInstalar('git');
-            if (!instalou) {
-                return {
-                    status: "error",
-                    message: "Erro: Git não encontrado e falha na instalação automática. Por favor, instale o Git manualmente."
-                };
-            }
+        // 1. Verificações de Ambiente
+        if (!(await verificarDependencia('git'))) {
+            if (!(await tentarInstalar('git'))) return { status: "error", message: "Falha ao instalar Git." };
+        }
+        if (!(await verificarDependencia('node'))) {
+            if (!(await tentarInstalar('node'))) return { status: "error", message: "Falha ao instalar Node.js." };
         }
 
-        // --- BLOCO DE VERIFICAÇÃO E INSTALAÇÃO DO NODE ---
-        let nodeExiste = await verificarDependencia('node');
+        // 2. Clone do Repositório
+        const repoUrl = 'https://github.com/JZ-TECH-SYS/myzap.git';
+        console.log("Iniciando clone...");
+        const clonou = await rodarComando('git', ['clone', repoUrl, dirPath]);
 
-        if (!nodeExiste) {
-            const instalou = await tentarInstalar('node');
-            if (instalou) {
-                return {
-                    status: "error",
-                    message: "Node.js instalado com sucesso! Por favor, FECHE e ABRA o aplicativo novamente."
-                };
-            } else {
-                return {
-                    status: "error",
-                    message: "Erro: Node.js não encontrado e falha na instalação automática."
-                };
-            }
+        if (!clonou) {
+            return { status: "error", message: "Erro ao clonar o repositório. Verifique se a pasta já existe." };
         }
 
-        // --- EXECUÇÃO DO CLONE (Se chegou aqui, tudo existe) ---
-        return new Promise((resolve) => {
-            const repoUrl = 'https://github.com/JZ-TECH-SYS/myzap.git';
-            const git = spawn('git', ['clone', repoUrl, dirPath], { shell: true });
+        // 3. Instalar PNPM Globalmente
+        console.log("Instalando pnpm globalmente...");
+        const pnpmGlobal = await rodarComando('npm', ['install', '-g', 'pnpm']);
+        if (!pnpmGlobal) {
+            return { status: "error", message: "Falha ao instalar pnpm globalmente." };
+        }
 
-            let errorOutput = '';
+        // 4. Instalar Dependências do Projeto (pnpm install)
+        console.log("Instalando dependências do projeto...");
+        // Usamos cwd para garantir que o pnpm rode DENTRO da pasta clonada
+        const instalouDeps = await rodarComando('pnpm', ['install'], { cwd: dirPath });
 
-            git.stderr.on('data', (data) => errorOutput += data.toString());
-            git.on('error', (err) => {
-                logError('Erro git', { metadata: { error: err } });
-                resolve({ status: "error", message: err.message });
-            });
+        if (!instalouDeps) {
+            return {
+                status: "error",
+                message: "Repositório clonado, mas houve erro ao instalar dependências (pnpm install)."
+            };
+        }
 
-            git.on('close', (code) => {
-                if (code === 0) {
-                    resolve({ status: "success", message: "MyZap foi instalado!" });
-                } else {
-                    resolve({
-                        status: "error",
-                        message: `Erro ao clonar (Código ${code}): ${errorOutput}`
-                    });
-                }
-            });
-        });
+        // 5. Manipulação do Arquivo ZIP (Configurações)
+        console.log("Configurando arquivos de ambiente e banco de dados...");
+        const zipPath = path.join(process.cwd(), 'myzap.zip'); // Arquivo na raiz do Electron
+
+        if (!fs.existsSync(zipPath)) {
+            return { status: "error", message: "Arquivo myzap.zip não encontrado na raiz do instalador." };
+        }
+
+        const zip = new AdmZip(zipPath);
+        const tempDir = path.join(dirPath, 'temp_zip');
+
+        if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
+        zip.extractAllTo(tempDir, true);
+
+        // Caminhos de destino
+        const envDest = path.join(dirPath, '.env');
+        const dbDestDir = path.join(dirPath, 'database');
+        const dbDestFile = path.join(dbDestDir, 'db.sqlite');
+
+        // Garantir que a pasta database existe no destino
+        if (!fs.existsSync(dbDestDir)) fs.mkdirSync(dbDestDir, { recursive: true });
+
+        // Mover .env
+        const tempEnv = path.join(tempDir, '.env');
+        if (fs.existsSync(tempEnv)) {
+            fs.copyFileSync(tempEnv, envDest);
+        }
+
+        // Mover db.sqlite
+        const tempDb = path.join(tempDir, 'db.sqlite');
+        if (fs.existsSync(tempDb)) {
+            fs.copyFileSync(tempDb, dbDestFile);
+        }
+
+        // Limpar pasta temporária
+        fs.rmSync(tempDir, { recursive: true, force: true });
+
+        // 6. Iniciar o projeto
+        console.log("Iniciando MyZap...");
+        // Usamos spawn sem await aqui se quisermos que o Electron continue livre, 
+        // ou com await se quisermos esperar o processo fechar.
+        rodarComando('pnpm', ['start'], { cwd: dirPath });
+
+        return {
+            status: "success",
+            message: "MyZap instalado, configurado e iniciado com sucesso!"
+        };
 
     } catch (err) {
-        logError('Erro crítico', { metadata: { error: err } });
+        logError('Erro crítico no processo de instalação', { metadata: { error: err } });
         return { status: "error", message: `Erro: ${err.message}` };
     }
 }
