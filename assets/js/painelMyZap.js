@@ -2,12 +2,11 @@
   try {
 
     const myzap_diretorio = (await window.api.getStore('myzap_diretorio')) ?? '';
-    const myzap_porta = (await window.api.getStore('myzap_porta')) ?? '';
     const myzap_sessionKey = (await window.api.getStore('myzap_sessionKey')) ?? '';
     const myzap_apiToken = (await window.api.getStore('myzap_apiToken')) ?? '';
 
     const statusConfig = document.getElementById('status-config');
-    if (myzap_diretorio && myzap_porta && myzap_sessionKey && myzap_apiToken) {
+    if (myzap_diretorio && myzap_sessionKey && myzap_apiToken) {
       statusConfig.textContent = 'Tudo em ordem!';
       statusConfig.classList.remove('bg-secondary');
       statusConfig.classList.add('bg-success');
@@ -26,19 +25,24 @@
     document.getElementById('btn-start').disabled = !(hasFiles.status === 'success');
 
     if (hasFiles.status === 'success') {
+      const statusApi = document.getElementById('status-api');
+      statusApi.innerHTML = `
+            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+            Verificando...
+        `;
+
       const start = await window.api.iniciarMyZap(String(myzap_diretorio));
       const btnStart = document.getElementById('btn-start');
-      const statusApi = document.getElementById('status-api');
+      
 
       statusApi.textContent = start.message || 'Erro ao iniciar MyZap!';
       statusApi.classList.remove('bg-secondary');
       statusApi.classList.add(start.status === 'success' ? 'bg-success' : 'bg-danger');
-      btnStart.disabled = (start.status !== 'success');
+      btnStart.disabled = (start.status == 'success');
     }
 
 
     document.getElementById('input-path').value = myzap_diretorio;
-    document.getElementById('input-port').value = myzap_porta;
     document.getElementById('input-sessionkey').value = myzap_sessionKey;
     document.getElementById('input-apitoken').value = myzap_apiToken;
   } catch (e) {
@@ -52,22 +56,11 @@ cfg_myzap.onsubmit = (e) => {
   e.preventDefault();
 
   const myzap_diretorio = document.getElementById('input-path').value.trim();
-  const myzap_porta = document.getElementById('input-port').value.trim();
   const myzap_sessionKey = document.getElementById('input-sessionkey').value.trim();
   const myzap_apiToken = document.getElementById('input-apitoken').value.trim();
 
-  if (!/^\d+$/.test(myzap_porta)) {
-    alert('A porta deve conter apenas números');
-    return;
-  }
-  if (myzap_porta.length > 4) {
-    alert('A porta deve conter no máximo 4 dígitos');
-    return;
-  }
-
   window.api.send('myzap-settings-saved', {
     myzap_diretorio,
-    myzap_porta,
     myzap_sessionKey,
     myzap_apiToken
   });
