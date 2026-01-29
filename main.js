@@ -18,6 +18,9 @@ const { registerPrinterHandlers } = require('./core/ipc/printers');
 const { registerMyZapHandlers } = require('./core/ipc/myzap');
 const { attachAutoUpdaterHandlers, checkForUpdates } = require('./core/updater');
 
+const verificarDiretorio = require('./core/myzap/verificarDiretorio');
+const iniciarMyZap = require('./core/myzap/iniciarMyZap');
+
 /* ---------- store ---------- */
 const store = new Store({
   defaults: { apiUrl: '', idempresa: '', printer: '' }
@@ -35,6 +38,10 @@ function toast(msg) {
 
 function hasValidConfig() {
   return !!store.get('apiUrl') && !!store.get('printer');
+}
+
+function hasValidConfigMyZap() {
+  return !!store.get('myzap_diretorio') && !!store.get('myzap_sessionKey') && !!store.get('myzap_apiToken');
 }
 
 function rebuildTrayMenu() {
@@ -75,6 +82,41 @@ function abrirAjuda() {
     shell.openPath(caminhoAjuda);
   } else {
     toast('Erro ao abrir arquivo de ajuda');
+  }
+}
+
+async function autoStartMyZap() {
+  const diretorio = store.get('myzap_diretorio');
+  console.log('Auto-start MyZap com diretório:', diretorio);
+  
+  if (!hasValidConfigMyZap()) {
+    warn('MyZap: Configurações ausentes.');
+    createPainelMyZap();
+    return;
+  }
+
+  try {
+    const checkDir = await verificarDiretorio(diretorio);
+
+    if (checkDir.status !== 'success') {
+      warn('MyZap: Diretório vazio ou inválido.');
+      createPainelMyZap();
+      return;
+    }
+
+    info('MyZap: Iniciando serviço automático...');
+    const result = await iniciarMyZap(diretorio);
+
+    if (result.status === 'success') {
+      toast('Serviço MyZap iniciado automaticamente');
+    } else {
+      error('MyZap: Falha na inicialização automática', { metadata: { result } });
+      createPainelMyZap();
+    }
+
+  } catch (err) {
+    error('MyZap: Erro crítico no auto-start', { metadata: { error: err } });
+    createPainelMyZap();
   }
 }
 
@@ -123,6 +165,8 @@ app.whenReady().then(() => {
     });
   }
 
+  autoStartMyZap();
+
   // Auto update: verifica e aplica (silencioso)
   handleUpdateCheck();
 });
@@ -159,11 +203,11 @@ ipcMain.on('settings-saved', (_e, { idempresa, apiUrl, apiToken, printer }) => {
 });
 
 /* Quando o usuário salva as configurações */
-ipcMain.on('myzap-settings-saved', (_e, { myzap_diretorio, myzap_porta, myzap_sessionKey, myzap_apiToken }) => {
+ipcMain.on('myzap-settings-saved', (_e, { myzap_diretorio, myzap_sessionKey, myzap_apiToken }) => {
   info('Configurações salvas pelo usuário', {
-    metadata: { myzap_diretorio, myzap_porta, myzap_sessionKey, myzap_apiToken }
+    metadata: { myzap_diretorio, myzap_sessionKey, myzap_apiToken }
   });
-  store.set({ myzap_diretorio, myzap_porta, myzap_sessionKey, myzap_apiToken });
+  store.set({ myzap_diretorio, myzap_sessionKey, myzap_apiToken });
 });
 
 process.on('uncaughtException', (err) => {
