@@ -41,7 +41,7 @@ function hasValidConfig() {
 }
 
 function hasValidConfigMyZap() {
-  return !!store.get('myzap_diretorio') && !!store.get('myzap_sessionKey') && !!store.get('myzap_apiToken');
+  return !!store.get('myzap_diretorio') && !!store.get('myzap_sessionKey') && !!store.get('myzap_apiToken') && !!store.get('myzap_envContent');
 }
 
 function rebuildTrayMenu() {
@@ -203,11 +203,11 @@ ipcMain.on('settings-saved', (_e, { idempresa, apiUrl, apiToken, printer }) => {
 });
 
 /* Quando o usuário salva as configurações */
-ipcMain.on('myzap-settings-saved', (_e, { myzap_diretorio, myzap_sessionKey, myzap_apiToken }) => {
+ipcMain.on('myzap-settings-saved', (_e, { myzap_diretorio, myzap_sessionKey, myzap_apiToken, myzap_envContent }) => {
   info('Configurações salvas pelo usuário', {
-    metadata: { myzap_diretorio, myzap_sessionKey, myzap_apiToken }
+    metadata: { myzap_diretorio, myzap_sessionKey, myzap_apiToken, myzap_envContent }
   });
-  store.set({ myzap_diretorio, myzap_sessionKey, myzap_apiToken });
+  store.set({ myzap_diretorio, myzap_sessionKey, myzap_apiToken, myzap_envContent });
 });
 
 process.on('uncaughtException', (err) => {

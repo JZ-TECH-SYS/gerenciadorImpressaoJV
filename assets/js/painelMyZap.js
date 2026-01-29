@@ -4,9 +4,10 @@
     const myzap_diretorio = (await window.api.getStore('myzap_diretorio')) ?? '';
     const myzap_sessionKey = (await window.api.getStore('myzap_sessionKey')) ?? '';
     const myzap_apiToken = (await window.api.getStore('myzap_apiToken')) ?? '';
-
+    const myzap_envContent = (await window.api.getStore('myzap_envContent')) ?? '';
+    
     const statusConfig = document.getElementById('status-config');
-    if (myzap_diretorio && myzap_sessionKey && myzap_apiToken) {
+    if (myzap_diretorio && myzap_sessionKey && myzap_apiToken && myzap_envContent) {
       statusConfig.textContent = 'Tudo em ordem!';
       statusConfig.classList.remove('bg-secondary');
       statusConfig.classList.add('bg-success');
@@ -45,6 +46,7 @@
     document.getElementById('input-path').value = myzap_diretorio;
     document.getElementById('input-sessionkey').value = myzap_sessionKey;
     document.getElementById('input-apitoken').value = myzap_apiToken;
+    document.getElementById('input-env').value = myzap_envContent;
   } catch (e) {
     alert('Erro ao carregar configurações: ' + (e?.message || e));
   }
@@ -58,11 +60,13 @@ cfg_myzap.onsubmit = (e) => {
   const myzap_diretorio = document.getElementById('input-path').value.trim();
   const myzap_sessionKey = document.getElementById('input-sessionkey').value.trim();
   const myzap_apiToken = document.getElementById('input-apitoken').value.trim();
+  const myzap_envContent = document.getElementById('input-env').value.trim();
 
   window.api.send('myzap-settings-saved', {
     myzap_diretorio,
     myzap_sessionKey,
-    myzap_apiToken
+    myzap_apiToken,
+    myzap_envContent
   });
 
   alert('Configurações salvas!');
@@ -75,6 +79,7 @@ function atualizaStatus() {
 
 async function installMyZap() {
   const myzap_diretorio = (await window.api.getStore('myzap_diretorio')) ?? '';
+  const myzap_envContent = (await window.api.getStore('myzap_envContent')) ?? '';
 
   if (!myzap_diretorio) {
     alert('Por favor, salve as configurações antes de instalar o MyZap.');
@@ -104,7 +109,8 @@ async function installMyZap() {
     statusBadge.className = 'badge bg-warning text-dark status-badge';
 
     const clone = await window.api.cloneRepository(
-      String(myzap_diretorio)
+      String(myzap_diretorio),
+      String(myzap_envContent)
     );
 
     if (clone.status === 'error') {
