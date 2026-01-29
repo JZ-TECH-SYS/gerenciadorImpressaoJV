@@ -2,7 +2,6 @@ const { spawn } = require('child_process');
 const { error: logError } = require("../utils/logger");
 const path = require('path');
 const fs = require('fs');
-const AdmZip = require('adm-zip');
 
 // Função auxiliar para rodar comandos shell de forma limpa
 function rodarComando(comando, args, opcoes = {}) {
@@ -39,7 +38,7 @@ function tentarInstalar(programa) {
     ]);
 }
 
-async function clonarRepositorio(dirPath) {
+async function clonarRepositorio(dirPath, envContent) {
     try {
         // 1. Verificações de Ambiente
         if (!(await verificarDependencia('git'))) {
@@ -77,47 +76,34 @@ async function clonarRepositorio(dirPath) {
             };
         }
 
-        // 5. Manipulação do Arquivo ZIP (Configurações)
-        console.log("Configurando arquivos de ambiente e banco de dados...");
-        const zipPath = path.join(process.cwd(), 'myzap.zip'); // Arquivo na raiz do Electron
+        // 5. Configuração de Arquivos (.env e Banco de Dados)
+        console.log("Configurando arquivo .env e banco de dados...");
 
-        if (!fs.existsSync(zipPath)) {
-            return { status: "error", message: "Arquivo myzap.zip não encontrado na raiz do instalador." };
-        }
-
-        const zip = new AdmZip(zipPath);
-        const tempDir = path.join(dirPath, 'temp_zip');
-
-        if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
-        zip.extractAllTo(tempDir, true);
-
-        // Caminhos de destino
+        // Criar arquivo .env com o conteúdo recebido via parâmetro
         const envDest = path.join(dirPath, '.env');
+        fs.writeFileSync(envDest, envContent, 'utf8');
+
+        // Caminhos para o Banco de Dados
+        // Origem: core\myzap\database\db.sqlite (dentro do seu projeto Electron)
+        // Destino: dirPath\database\db.sqlite
+        const dbOrigem = path.join(__dirname, 'database', 'db.sqlite');
         const dbDestDir = path.join(dirPath, 'database');
         const dbDestFile = path.join(dbDestDir, 'db.sqlite');
 
-        // Garantir que a pasta database existe no destino
-        if (!fs.existsSync(dbDestDir)) fs.mkdirSync(dbDestDir, { recursive: true });
-
-        // Mover .env
-        const tempEnv = path.join(tempDir, '.env');
-        if (fs.existsSync(tempEnv)) {
-            fs.copyFileSync(tempEnv, envDest);
+        // Garantir que a pasta database existe no diretório do MyZap
+        if (!fs.existsSync(dbDestDir)) {
+            fs.mkdirSync(dbDestDir, { recursive: true });
         }
 
-        // Mover db.sqlite
-        const tempDb = path.join(tempDir, 'db.sqlite');
-        if (fs.existsSync(tempDb)) {
-            fs.copyFileSync(tempDb, dbDestFile);
+        // Copiar o banco de dados se a origem existir
+        if (fs.existsSync(dbOrigem)) {
+            fs.copyFileSync(dbOrigem, dbDestFile);
+        } else {
+            console.warn("Aviso: Banco de dados original não encontrado em " + dbOrigem);
         }
-
-        // Limpar pasta temporária
-        fs.rmSync(tempDir, { recursive: true, force: true });
 
         // 6. Iniciar o projeto
         console.log("Iniciando MyZap...");
-        // Usamos spawn sem await aqui se quisermos que o Electron continue livre, 
-        // ou com await se quisermos esperar o processo fechar.
         rodarComando('pnpm', ['start'], { cwd: dirPath });
 
         return {
