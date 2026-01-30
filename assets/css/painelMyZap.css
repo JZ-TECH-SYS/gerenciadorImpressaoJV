@@ -43,3 +43,93 @@ body {
     border-color: #10b981;
     box-shadow: none;
 }
+
+
+/* ===============================
+   MYZAP LAYOUT
+================================ */
+
+.myzap-grid {
+    display: grid;
+    grid-template-columns: 1.2fr 0.8fr;
+    gap: 24px;
+}
+
+.myzap-form {
+    background-color: #020617;
+    border: 1px solid #1e293b;
+    border-radius: 12px;
+    padding: 24px;
+}
+
+.myzap-side {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* ===============================
+   INFO BOX
+================================ */
+
+.myzap-info {
+    background-color: #0b1f3a;
+    border: 1px solid #1e40af;
+    color: #bfdbfe;
+}
+
+/* ===============================
+   STATUS
+================================ */
+
+.myzap-status-card {
+    background-color: #020617;
+    border: 1px solid #1e293b;
+    border-radius: 12px;
+    padding: 16px;
+}
+
+.status-indicator {
+    margin-top: 8px;
+    font-weight: 600;
+}
+
+.status-indicator.disconnected {
+    color: #f87171;
+}
+
+.status-indicator.connected {
+    color: #4ade80;
+}
+
+
+/* ===============================
+   QR CODE
+================================ */
+
+.myzap-qrcode-card {
+    background-color: #020617;
+    border: 1px solid #1e293b;
+    border-radius: 12px;
+    padding: 16px;
+}
+
+.qrcode-box {
+    height: 220px;
+    border: 2px dashed #334155;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 10px;
+    background-color: #020617;
+}
+
+/* ===============================
+   TEXTOS
+================================ */
+
+.text-muted-small {
+    font-size: 0.85rem;
+    color: #94a3b8;
+}
