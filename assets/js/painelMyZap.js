@@ -63,6 +63,11 @@ cfg_myzap.onsubmit = (e) => {
   const myzap_apiToken = document.getElementById('input-apitoken').value.trim();
   const myzap_envContent = document.getElementById('input-env').value.trim();
 
+  if (!myzap_diretorio.toLowerCase().includes('/myzap')) {
+    alert('O caminho do diretório deve se remeter ao diretório "myzap". Por exemplo, C:/JzTech/projects/myzap.');
+    return;
+  }
+
   window.api.send('myzap-settings-saved', {
     myzap_diretorio,
     myzap_sessionKey,
