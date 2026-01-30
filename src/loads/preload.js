@@ -7,6 +7,6 @@ contextBridge.exposeInMainWorld('api', {
   getStore: (key) => ipcRenderer.invoke('settings:get', key),
   getPrinters: () => ipcRenderer.invoke('printers:list'),
   checkDirectoryHasFiles: (dirPath) => ipcRenderer.invoke('myzap:checkDirectoryHasFiles', dirPath),
-  cloneRepository: (dirPath, envContent) => ipcRenderer.invoke('myzap:cloneRepository', dirPath, envContent),
+  cloneRepository: (dirPath, envContent, reinstall = false) => ipcRenderer.invoke('myzap:cloneRepository', dirPath, envContent, reinstall),
   iniciarMyZap: (dirPath) => ipcRenderer.invoke('myzap:iniciarMyZap', dirPath)
 });

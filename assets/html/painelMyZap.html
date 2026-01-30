@@ -96,9 +96,28 @@
                                 Iniciar MyZap
                             </button>
 
-                            <button id="btn-install" class="btn btn-primary" onclick="installMyZap()">
-                                Instalar
-                            </button>
+                            <div class="btn-group" id="install-group">
+                                <!-- Botão principal -->
+                                <button id="btn-install" type="button" class="btn btn-primary"
+                                    onclick="installMyZap()">
+                                    Instalar
+                                </button>
+
+                                <!-- Dropdown (só aparece quando estiver instalado) -->
+                                <button id="btn-install-dropdown" type="button"
+                                    class="btn btn-primary dropdown-toggle dropdown-toggle-split d-none"
+                                    data-bs-toggle="dropdown" aria-expanded="false">
+                                    <span class="visually-hidden">Toggle Dropdown</span>
+                                </button>
+
+                                <ul class="dropdown-menu">
+                                    <li>
+                                        <button id="btn-reinstall" class="dropdown-item" onclick="reinstallMyZap()">
+                                            Reinstalar
+                                        </button>
+                                    </li>
+                                </ul>
+                            </div>
 
                             <button id="btn-refresh-status" class="btn btn-outline-light" onclick="atualizaStatus()">
                                 Atualizar Status
