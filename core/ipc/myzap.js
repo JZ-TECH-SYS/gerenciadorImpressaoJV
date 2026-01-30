@@ -19,9 +19,9 @@ function registerMyZapHandlers(ipcMain) {
         }
     });
 
-    ipcMain.handle('myzap:cloneRepository', async (event, dirPath, envContent) => {
+    ipcMain.handle('myzap:cloneRepository', async (event, dirPath, envContent, reinstall = false) => {
         try {
-            const result = await clonarRepositorio(dirPath, envContent);
+            const result = await clonarRepositorio(dirPath, envContent, reinstall);
             return result;
         } catch (error) {
             warn('Falha ao clonar repositório via IPC', {

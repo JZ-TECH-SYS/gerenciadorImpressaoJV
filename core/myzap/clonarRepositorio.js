@@ -1,4 +1,4 @@
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const { error: logError } = require("../utils/logger");
 const path = require('path');
 const fs = require('fs');
@@ -14,6 +14,25 @@ function rodarComando(comando, args, opcoes = {}) {
         proc.on('close', (code) => resolve(code === 0));
         proc.on('error', () => resolve(false));
     });
+}
+
+function pararProcessoPorta() {
+    try {
+        // Busca o PID do processo na porta
+        const stdout = execSync('netstat -ano | findstr :5555').toString();
+        const lines = stdout.split('\n');
+        if (lines.length > 0) {
+            const line = lines[0].trim();
+            const parts = line.split(/\s+/);
+            const pid = parts[parts.length - 1];
+            if (pid && pid !== '0') {
+                console.log(`Matando processo MyZap (PID: ${pid})...`);
+                execSync(`taskkill /F /PID ${pid}`);
+            }
+        }
+    } catch (e) {
+        console.log("Nenhum processo rodando na porta 5555 ou erro ao finalizar. Erro:", e.message);
+    }
 }
 
 function verificarDependencia(comando) {
@@ -38,7 +57,7 @@ function tentarInstalar(programa) {
     ]);
 }
 
-async function clonarRepositorio(dirPath, envContent) {
+async function clonarRepositorio(dirPath, envContent, reinstall = false) {
     try {
         // 1. Verificações de Ambiente
         if (!(await verificarDependencia('git'))) {
@@ -46,6 +65,30 @@ async function clonarRepositorio(dirPath, envContent) {
         }
         if (!(await verificarDependencia('node'))) {
             if (!(await tentarInstalar('node'))) return { status: "error", message: "Falha ao instalar Node.js." };
+        }
+
+        // 2. Lógica de Reinstalação
+        if (reinstall) {
+            console.log("Iniciando modo de reinstalação...");
+
+            pararProcessoPorta();
+
+            await new Promise(r => setTimeout(r, 500));
+
+            // C. Remove o diretório usando o comando nativo do Windows (mais potente)
+            if (fs.existsSync(dirPath)) {
+                try {
+                    console.log("Removendo pasta via comando do sistema...");
+                    // /S remove subpastas, /Q é modo silencioso
+                    execSync(`rd /s /q "${dirPath}"`);
+                } catch (err) {
+                    logError('Erro ao deletar pasta via RD', { metadata: { err } });
+                    // Se falhar, tenta o rmSync como última alternativa
+                    if (fs.existsSync(dirPath)) {
+                        fs.rmSync(dirPath, { recursive: true, force: true });
+                    }
+                }
+            }
         }
 
         // 2. Clone do Repositório
