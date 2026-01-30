@@ -20,6 +20,7 @@ const { attachAutoUpdaterHandlers, checkForUpdates } = require('./core/updater')
 
 const verificarDiretorio = require('./core/myzap/verificarDiretorio');
 const iniciarMyZap = require('./core/myzap/iniciarMyZap');
+const atualizarEnv = require('./core/myzap/atualizarEnv');
 
 /* ---------- store ---------- */
 const store = new Store({
@@ -88,7 +89,7 @@ function abrirAjuda() {
 async function autoStartMyZap() {
   const diretorio = store.get('myzap_diretorio');
   console.log('Auto-start MyZap com diretório:', diretorio);
-  
+
   if (!hasValidConfigMyZap()) {
     warn('MyZap: Configurações ausentes.');
     createPainelMyZap();
@@ -203,11 +204,19 @@ ipcMain.on('settings-saved', (_e, { idempresa, apiUrl, apiToken, printer }) => {
 });
 
 /* Quando o usuário salva as configurações */
-ipcMain.on('myzap-settings-saved', (_e, { myzap_diretorio, myzap_sessionKey, myzap_apiToken, myzap_envContent }) => {
+ipcMain.on('myzap-settings-saved', async (_e, { myzap_diretorio, myzap_sessionKey, myzap_apiToken, myzap_envContent }) => {
   info('Configurações salvas pelo usuário', {
     metadata: { myzap_diretorio, myzap_sessionKey, myzap_apiToken, myzap_envContent }
   });
   store.set({ myzap_diretorio, myzap_sessionKey, myzap_apiToken, myzap_envContent });
+
+  if (myzap_diretorio) {
+    const result = await atualizarEnv(myzap_diretorio, myzap_envContent);
+
+    if (result.status === 'success') {
+      toast('MyZap: Configurações atualizadas!');
+    }
+  }
 });
 
 process.on('uncaughtException', (err) => {
