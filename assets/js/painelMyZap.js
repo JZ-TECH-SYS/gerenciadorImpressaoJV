@@ -113,7 +113,8 @@ async function installMyZap() {
 
   // 1. Elementos da UI
   const btnInstall = document.getElementById('btn-install');
-  const btnStart = document.getElementById('btn-start'); // Vamos bloquear esse também por segurança
+  const btnStart = document.getElementById('btn-start');
+  const btnRefresh = document.getElementById('btn-refresh-status');
   const statusBadge = document.getElementById('status-installation');
 
   // Guardamos o texto original para restaurar em caso de erro
@@ -124,6 +125,7 @@ async function installMyZap() {
   try {
     btnInstall.disabled = true;
     btnStart.disabled = true;
+    btnRefresh.disabled = true;
 
     btnInstall.innerHTML = `
             <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
