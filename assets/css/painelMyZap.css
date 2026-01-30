@@ -133,3 +133,13 @@ body {
     font-size: 0.85rem;
     color: #94a3b8;
 }
+
+.myzap-readonly {
+    background-color: #334155 !important;
+    color: #e5e7eb;
+    cursor: not-allowed;
+}
+
+.myzap-readonly::placeholder {
+    color: #cbd5e1;
+}

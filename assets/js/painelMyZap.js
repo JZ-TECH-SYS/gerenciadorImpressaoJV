@@ -1,5 +1,15 @@
 (async () => {
   try {
+    await loadConfigs();
+    await loadMyZap();
+  } catch (e) {
+    alert('Erro ao carregar configurações: ' + (e?.message || e));
+  }
+})();
+
+
+async function loadConfigs() {
+  try {
 
     const myzap_diretorio = (await window.api.getStore('myzap_diretorio')) ?? '';
     const myzap_sessionKey = (await window.api.getStore('myzap_sessionKey')) ?? '';
@@ -51,7 +61,15 @@
   } catch (e) {
     alert('Erro ao carregar configurações: ' + (e?.message || e));
   }
-})();
+}
+
+async function loadMyZap() {
+  const myzap_sessionKey = (await window.api.getStore('myzap_sessionKey')) ?? '';
+  if (myzap_sessionKey) {
+    document.getElementById('myzap-sessionkey').value = myzap_sessionKey;
+    document.getElementById('myzap-sessionname').value = myzap_sessionKey;
+  }
+}
 
 const cfg_myzap = document.getElementById('myzap-config-form');
 
