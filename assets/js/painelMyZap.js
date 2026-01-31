@@ -33,7 +33,6 @@ async function loadConfigs() {
     statusInstallation.classList.remove('bg-secondary');
     statusInstallation.classList.add(hasFiles.status === 'success' ? 'bg-success' : 'bg-danger');
     setInstalled(hasFiles.status === 'success');
-    // document.getElementById('btn-install').disabled = (hasFiles.status === 'success');
     document.getElementById('btn-start').disabled = !(hasFiles.status === 'success');
 
     if (hasFiles.status === 'success') {
@@ -61,6 +60,11 @@ async function loadConfigs() {
   } catch (e) {
     alert('Erro ao carregar configurações: ' + (e?.message || e));
   }
+}
+
+async function checkConnection() {
+  const check = await window.api.getConnectionStatus();
+  alert(check)
 }
 
 async function loadMyZap() {
