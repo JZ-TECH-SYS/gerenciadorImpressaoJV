@@ -2,6 +2,8 @@ const { warn } = require('../utils/logger');
 const clonarRepositorio = require('../myzap/clonarRepositorio');
 const verificarDiretorio = require('../myzap/verificarDiretorio');
 const getConnectionStatus = require('../myzap/api/getConnectionStatus');
+const startSession = require('../myzap/api/startSession');
+const deleteSession = require('../myzap/api/deleteSession');
 const iniciarMyZap = require('../myzap/iniciarMyZap');
 
 function registerMyZapHandlers(ipcMain) {
@@ -53,6 +55,36 @@ function registerMyZapHandlers(ipcMain) {
     ipcMain.handle('myzap:getConnectionStatus', async (event) => {
         try {
             const result = await getConnectionStatus();
+            return result;
+        } catch (error) {
+            warn('Falha ao verificar conexão MyZap via IPC', {
+                metadata: { error }
+            });
+            return {
+                status: 'error',
+                message: error.message || String(error)
+            };
+        }
+    });
+
+    ipcMain.handle('myzap:startSession', async (event) => {
+        try {
+            const result = await startSession();
+            return result;
+        } catch (error) {
+            warn('Falha ao verificar conexão MyZap via IPC', {
+                metadata: { error }
+            });
+            return {
+                status: 'error',
+                message: error.message || String(error)
+            };
+        }
+    });
+
+    ipcMain.handle('myzap:deleteSession', async (event) => {
+        try {
+            const result = await deleteSession();
             return result;
         } catch (error) {
             warn('Falha ao verificar conexão MyZap via IPC', {

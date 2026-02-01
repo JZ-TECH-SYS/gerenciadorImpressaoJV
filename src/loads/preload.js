@@ -9,5 +9,7 @@ contextBridge.exposeInMainWorld('api', {
   checkDirectoryHasFiles: (dirPath) => ipcRenderer.invoke('myzap:checkDirectoryHasFiles', dirPath),
   cloneRepository: (dirPath, envContent, reinstall = false) => ipcRenderer.invoke('myzap:cloneRepository', dirPath, envContent, reinstall),
   iniciarMyZap: (dirPath) => ipcRenderer.invoke('myzap:iniciarMyZap', dirPath),
-  getConnectionStatus: () => ipcRenderer.invoke('myzap:getConnectionStatus')
+  getConnectionStatus: () => ipcRenderer.invoke('myzap:getConnectionStatus'),
+  startSession: () => ipcRenderer.invoke('myzap:startSession'),
+  deleteSession: () => ipcRenderer.invoke('myzap:deleteSession')
 });
