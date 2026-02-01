@@ -88,8 +88,11 @@
                                     Aguardando informações para gerar o QRCode ou iniciar a sessão.
                                 </div>
 
-                                <button class="btn btn-success mt-2">
+                                <button class="btn btn-success mt-2" type="button" onclick="iniciarSessao()">
                                     Iniciar instância
+                                </button>
+                                <button class="btn btn-danger mt-2" type="button" onclick="deletarSessao()">
+                                    Encerrar instância
                                 </button>
                             </div>
 
@@ -116,7 +119,7 @@
                                 <div class="myzap-qrcode-card">
                                     <strong class="mb-2 d-block">QR Code</strong>
 
-                                    <div class="qrcode-box">
+                                    <div id="qrcode-box" class="qrcode-box">
                                         <span class="text-muted-small">
                                             QR Code aparecerá aqui
                                         </span>

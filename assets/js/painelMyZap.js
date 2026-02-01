@@ -1,3 +1,12 @@
+function setButtonsState({ canStart, canDelete }) {
+  const btnStart = document.getElementById('btn-start');
+  const btnDelete = document.getElementById('btn-delete-session');
+
+  if (btnStart) btnStart.disabled = !canStart;
+  if (btnDelete) btnDelete.disabled = !canDelete;
+}
+
+
 (async () => {
   try {
     await loadConfigs();
@@ -63,9 +72,197 @@ async function loadConfigs() {
 }
 
 async function checkConnection() {
-  const check = await window.api.getConnectionStatus();
-  alert(check)
+  const qrBox = document.getElementById('qrcode-box');
+  const statusIndicator = document.querySelector('.status-indicator');
+
+  // loading simples (opcional)
+  qrBox.innerHTML = `<span class="text-muted-small">Verificando status...</span>`;
+
+  try {
+    const response = await window.api.getConnectionStatus();
+
+    if (!response || response.result !== 200) {
+      throw new Error('Resposta inválida da API');
+    }
+
+    const { status, state, qrCode } = response;
+
+    // ===============================
+    // CONECTADO
+    // ===============================
+    if (state === 'CONNECTED' || status === 'connected') {
+      statusIndicator.className = 'status-indicator connected';
+      statusIndicator.textContent = '✅ Conectado';
+
+      qrBox.innerHTML = `
+        <span class="text-muted-small">
+          WhatsApp conectado com sucesso
+        </span>
+      `;
+      return;
+    }
+
+    // ===============================
+    // AGUARDANDO QR CODE
+    // ===============================
+    if ((state === 'QRCODE' || status === 'qrCode') && qrCode) {
+      statusIndicator.className = 'status-indicator waiting';
+      statusIndicator.textContent = '⏳ Aguardando leitura do QR Code';
+
+      qrBox.innerHTML = `
+        <img 
+          src="${qrCode}" 
+          alt="QR Code WhatsApp"
+        />
+        <div class="qrcode-hint">
+          Escaneie o QR Code com o WhatsApp
+        </div>
+      `;
+
+      return;
+    }
+
+    // ===============================
+    // DESCONHECIDO / DESCONECTADO
+    // ===============================
+    statusIndicator.className = 'status-indicator disconnected';
+    statusIndicator.textContent = '❌ Desconectado';
+
+    qrBox.innerHTML = `
+      <span class="text-muted-small">
+        QR Code não disponível
+      </span>
+    `;
+
+  } catch (err) {
+    console.error('Erro ao verificar conexão:', err);
+
+    statusIndicator.className = 'status-indicator disconnected';
+    statusIndicator.textContent = '⚠ Erro de conexão';
+
+    qrBox.innerHTML = `
+      <span class="text-danger text-small">
+        Erro ao verificar status do MyZap
+      </span>
+    `;
+  }
 }
+
+async function iniciarSessao() {
+  const qrBox = document.getElementById('qrcode-box');
+  const statusIndicator = document.querySelector('.status-indicator');
+
+  try {
+    // 1️⃣ Verifica se já existe sessão
+    const check = await window.api.getConnectionStatus();
+
+    if (check?.result === 200) {
+      statusIndicator.className = 'status-indicator waiting';
+      statusIndicator.textContent = '⚠ Sessão já existe';
+
+      setButtonsState({ canStart: false, canDelete: true });
+      return;
+    }
+
+    // 2️⃣ Inicia sessão
+    statusIndicator.className = 'status-indicator waiting';
+    statusIndicator.textContent = '🚀 Iniciando sessão...';
+
+    qrBox.innerHTML = `
+      <span class="text-muted-small">
+        Inicializando sessão do WhatsApp...
+      </span>
+    `;
+
+    const response = await window.api.startSession();
+
+    if (!response || response.result !== 'success') {
+      throw new Error('Falha ao iniciar sessão');
+    }
+
+    // 3️⃣ Atualiza UI
+    statusIndicator.textContent = '⏳ Sessão iniciada, aguardando QR Code';
+
+    setButtonsState({ canStart: false, canDelete: true });
+
+    // opcional: forçar refresh do status
+    setTimeout(checkConnection, 1500);
+
+  } catch (err) {
+    console.error('Erro ao iniciar sessão:', err);
+
+    statusIndicator.className = 'status-indicator disconnected';
+    statusIndicator.textContent = '❌ Erro ao iniciar sessão';
+
+    qrBox.innerHTML = `
+      <span class="text-danger text-small">
+        Não foi possível iniciar a sessão
+      </span>
+    `;
+  }
+}
+
+
+async function deletarSessao() {
+  const qrBox = document.getElementById('qrcode-box');
+  const statusIndicator = document.querySelector('.status-indicator');
+
+  try {
+    // 1️⃣ Verifica se existe sessão
+    const check = await window.api.getConnectionStatus();
+
+    if (check?.status === 'NOT FOUND' || check?.response === false) {
+      statusIndicator.className = 'status-indicator disconnected';
+      statusIndicator.textContent = 'ℹ Nenhuma sessão ativa';
+
+      setButtonsState({ canStart: true, canDelete: false });
+      return;
+    }
+
+    // 2️⃣ Feedback visual
+    statusIndicator.className = 'status-indicator waiting';
+    statusIndicator.textContent = '🧹 Encerrando sessão...';
+
+    qrBox.innerHTML = `
+      <span class="text-muted-small">
+        Finalizando sessão do WhatsApp...
+      </span>
+    `;
+
+    // 3️⃣ Chamada de delete
+    const response = await window.api.deleteSession();
+
+    if (!response || response.status !== 'SUCCESS') {
+      throw new Error('Falha ao deletar sessão');
+    }
+
+    // 4️⃣ UI final
+    statusIndicator.className = 'status-indicator disconnected';
+    statusIndicator.textContent = '❌ Sessão encerrada';
+
+    qrBox.innerHTML = `
+      <span class="text-muted-small">
+        Sessão removida com sucesso
+      </span>
+    `;
+
+    setButtonsState({ canStart: true, canDelete: false });
+
+  } catch (err) {
+    console.error('Erro ao deletar sessão:', err);
+
+    statusIndicator.className = 'status-indicator disconnected';
+    statusIndicator.textContent = '⚠ Erro ao deletar sessão';
+
+    qrBox.innerHTML = `
+      <span class="text-danger text-small">
+        Não foi possível encerrar a sessão
+      </span>
+    `;
+  }
+}
+
+
 
 async function loadMyZap() {
   const myzap_sessionKey = (await window.api.getStore('myzap_sessionKey')) ?? '';
