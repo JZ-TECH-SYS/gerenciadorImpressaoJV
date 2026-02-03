@@ -88,10 +88,10 @@
                                     Aguardando informações para gerar o QRCode ou iniciar a sessão.
                                 </div>
 
-                                <button class="btn btn-success mt-2" type="button" onclick="iniciarSessao()">
+                                <button class="btn btn-success mt-2" type="button" id="btn-start-session" disabled onclick="iniciarSessao()">
                                     Iniciar instância
                                 </button>
-                                <button class="btn btn-danger mt-2" type="button" onclick="deletarSessao()">
+                                <button class="btn btn-danger mt-2" type="button" id="btn-delete-session" disabled onclick="deletarSessao()">
                                     Encerrar instância
                                 </button>
                             </div>
@@ -110,8 +110,8 @@
                                         </button>
                                     </div>
 
-                                    <div class="status-indicator disconnected">
-                                        ❌ Desconectado
+                                    <div class="status-indicator waiting">
+                                        Verificando...
                                     </div>
                                 </div>
 

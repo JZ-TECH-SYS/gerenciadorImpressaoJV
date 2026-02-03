@@ -30,7 +30,7 @@ async function startSession() {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
+                apitoken: token,
                 sessionkey: 1
             },
             body: JSON.stringify({ session })
@@ -40,6 +40,7 @@ async function startSession() {
         return data;
 
     } catch (e) {
+        console.log('ERRRRO', e)
         error("Erro ao iniciar sessão MyZap", {
             metadata: { area: 'startSession', error: e }
         });

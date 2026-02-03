@@ -30,7 +30,7 @@ async function deleteSession() {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
+                apitoken: token,
                 sessionkey: 1
             },
             body: JSON.stringify({ session })

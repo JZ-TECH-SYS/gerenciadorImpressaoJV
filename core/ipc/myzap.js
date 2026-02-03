@@ -4,6 +4,7 @@ const verificarDiretorio = require('../myzap/verificarDiretorio');
 const getConnectionStatus = require('../myzap/api/getConnectionStatus');
 const startSession = require('../myzap/api/startSession');
 const deleteSession = require('../myzap/api/deleteSession');
+const verifyRealStatus = require('../myzap/api/verifyRealStatus');
 const iniciarMyZap = require('../myzap/iniciarMyZap');
 
 function registerMyZapHandlers(ipcMain) {
@@ -58,6 +59,21 @@ function registerMyZapHandlers(ipcMain) {
             return result;
         } catch (error) {
             warn('Falha ao verificar conexão MyZap via IPC', {
+                metadata: { error }
+            });
+            return {
+                status: 'error',
+                message: error.message || String(error)
+            };
+        }
+    });
+
+    ipcMain.handle('myzap:verifyRealStatus', async (event) => {
+        try {
+            const result = await verifyRealStatus();
+            return result;
+        } catch (error) {
+            warn('Falha ao verificar status real MyZap via IPC', {
                 metadata: { error }
             });
             return {
