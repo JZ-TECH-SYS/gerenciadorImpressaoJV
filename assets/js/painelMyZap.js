@@ -1,5 +1,5 @@
 function setButtonsState({ canStart, canDelete }) {
-  const btnStart = document.getElementById('btn-start');
+  const btnStart = document.getElementById('btn-start-session');
   const btnDelete = document.getElementById('btn-delete-session');
 
   if (btnStart) btnStart.disabled = !canStart;
@@ -10,7 +10,6 @@ function setButtonsState({ canStart, canDelete }) {
 (async () => {
   try {
     await loadConfigs();
-    await loadMyZap();
   } catch (e) {
     alert('Erro ao carregar configurações: ' + (e?.message || e));
   }
@@ -59,6 +58,17 @@ async function loadConfigs() {
       statusApi.classList.remove('bg-secondary');
       statusApi.classList.add(start.status === 'success' ? 'bg-success' : 'bg-danger');
       btnStart.disabled = (start.status == 'success');
+
+      if (start.status == 'success') {
+        if (myzap_sessionKey) {
+          document.getElementById('myzap-sessionkey').value = myzap_sessionKey;
+          document.getElementById('myzap-sessionname').value = myzap_sessionKey;
+          setInterval(async () => {
+            await checkConnection();
+          }, 10000);
+        }
+      }
+
     }
 
 
@@ -71,26 +81,45 @@ async function loadConfigs() {
   }
 }
 
-async function checkConnection() {
+async function checkRealConnection() {
   const qrBox = document.getElementById('qrcode-box');
   const statusIndicator = document.querySelector('.status-indicator');
 
-  // loading simples (opcional)
-  qrBox.innerHTML = `<span class="text-muted-small">Verificando status...</span>`;
+  qrBox.innerHTML = `<span class="text-muted-small">Verificando status real...</span>`;
 
   try {
-    const response = await window.api.getConnectionStatus();
+    const response = await window.api.verifyRealStatus();
 
-    if (!response || response.result !== 200) {
+    if (!response.dbStatus && !response.status) {
       throw new Error('Resposta inválida da API');
     }
 
-    const { status, state, qrCode } = response;
+    const {
+      realStatus,
+      dbStatus,
+      dbState,
+      status,
+      message
+    } = response;
 
-    // ===============================
-    // CONECTADO
-    // ===============================
-    if (state === 'CONNECTED' || status === 'connected') {
+    if (status == 'NOT FOUND') {
+      statusIndicator.className = 'status-indicator waiting';
+      statusIndicator.textContent = 'Sessão não iniciada!';
+
+      qrBox.innerHTML = `
+        <span class="text-muted-small">
+          Nenhuma instância de sessão foi criada!
+        </span>
+      `;
+
+      setButtonsState({ canStart: true, canDelete: false });
+      return { isConnected: false, isQrWaiting: false, response };
+    }
+
+    const isConnected = realStatus === 'CONNECTED';
+    const isQrWaiting = dbState === 'QRCODE' || dbStatus === 'qrCode';
+
+    if (isConnected) {
       statusIndicator.className = 'status-indicator connected';
       statusIndicator.textContent = '✅ Conectado';
 
@@ -99,12 +128,74 @@ async function checkConnection() {
           WhatsApp conectado com sucesso
         </span>
       `;
+
+      setButtonsState({ canStart: false, canDelete: true });
+      return { isConnected: true, isQrWaiting: false, response };
+    }
+
+    if (isQrWaiting) {
+      statusIndicator.className = 'status-indicator waiting';
+      statusIndicator.textContent = '⏳ Aguardando leitura do QR Code';
+
+      setButtonsState({ canStart: false, canDelete: true });
+      return { isConnected: false, isQrWaiting: true, response };
+    }
+
+    statusIndicator.className = 'status-indicator disconnected';
+    statusIndicator.textContent = '❌ Desconectado';
+
+    qrBox.innerHTML = `
+      <span class="text-muted-small">
+        ${message || 'QR Code não disponível'}
+      </span>
+    `;
+
+    setButtonsState({ canStart: true, canDelete: false });
+    return { isConnected: false, isQrWaiting: false, response };
+
+  } catch (err) {
+    console.error('Erro ao verificar status real:', err);
+
+    statusIndicator.className = 'status-indicator disconnected';
+    statusIndicator.textContent = '⚠ Erro de conexão';
+
+    qrBox.innerHTML = `
+      <span class="text-danger text-small">
+        Erro ao verificar status do MyZap
+      </span>
+    `;
+
+    setButtonsState({ canStart: false, canDelete: false });
+    return { isConnected: false, isQrWaiting: false, response: null };
+  }
+}
+
+async function checkConnection() {
+  const qrBox = document.getElementById('qrcode-box');
+  const statusIndicator = document.querySelector('.status-indicator');
+
+  // loading simples (opcional)
+  qrBox.innerHTML = `<span class="text-muted-small">Verificando status...</span>`;
+
+  try {
+    const realCheck = await checkRealConnection();
+
+    if (!realCheck || realCheck.isConnected) {
       return;
     }
 
-    // ===============================
-    // AGUARDANDO QR CODE
-    // ===============================
+    if (!realCheck.isQrWaiting) {
+      return;
+    }
+
+    const response = await window.api.getConnectionStatus();
+
+    if (!response || response.result !== 200) {
+      throw new Error('Resposta inválida da API');
+    }
+
+    const { status, state, qrCode } = response;
+
     if ((state === 'QRCODE' || status === 'qrCode') && qrCode) {
       statusIndicator.className = 'status-indicator waiting';
       statusIndicator.textContent = '⏳ Aguardando leitura do QR Code';
@@ -118,21 +209,7 @@ async function checkConnection() {
           Escaneie o QR Code com o WhatsApp
         </div>
       `;
-
-      return;
     }
-
-    // ===============================
-    // DESCONHECIDO / DESCONECTADO
-    // ===============================
-    statusIndicator.className = 'status-indicator disconnected';
-    statusIndicator.textContent = '❌ Desconectado';
-
-    qrBox.innerHTML = `
-      <span class="text-muted-small">
-        QR Code não disponível
-      </span>
-    `;
 
   } catch (err) {
     console.error('Erro ao verificar conexão:', err);
@@ -153,10 +230,8 @@ async function iniciarSessao() {
   const statusIndicator = document.querySelector('.status-indicator');
 
   try {
-    // 1️⃣ Verifica se já existe sessão
-    const check = await window.api.getConnectionStatus();
-
-    if (check?.result === 200) {
+    const realCheck = await checkRealConnection();
+    if (realCheck?.isConnected || realCheck?.isQrWaiting) {
       statusIndicator.className = 'status-indicator waiting';
       statusIndicator.textContent = '⚠ Sessão já existe';
 
@@ -164,7 +239,6 @@ async function iniciarSessao() {
       return;
     }
 
-    // 2️⃣ Inicia sessão
     statusIndicator.className = 'status-indicator waiting';
     statusIndicator.textContent = '🚀 Iniciando sessão...';
 
@@ -186,7 +260,7 @@ async function iniciarSessao() {
     setButtonsState({ canStart: false, canDelete: true });
 
     // opcional: forçar refresh do status
-    setTimeout(checkConnection, 1500);
+    setTimeout(checkConnection, 5000);
 
   } catch (err) {
     console.error('Erro ao iniciar sessão:', err);
@@ -209,9 +283,9 @@ async function deletarSessao() {
 
   try {
     // 1️⃣ Verifica se existe sessão
-    const check = await window.api.getConnectionStatus();
+    const realCheck = await checkRealConnection();
 
-    if (check?.status === 'NOT FOUND' || check?.response === false) {
+    if (!realCheck || (!realCheck.isConnected && !realCheck.isQrWaiting)) {
       statusIndicator.className = 'status-indicator disconnected';
       statusIndicator.textContent = 'ℹ Nenhuma sessão ativa';
 
@@ -262,15 +336,6 @@ async function deletarSessao() {
   }
 }
 
-
-
-async function loadMyZap() {
-  const myzap_sessionKey = (await window.api.getStore('myzap_sessionKey')) ?? '';
-  if (myzap_sessionKey) {
-    document.getElementById('myzap-sessionkey').value = myzap_sessionKey;
-    document.getElementById('myzap-sessionname').value = myzap_sessionKey;
-  }
-}
 
 const cfg_myzap = document.getElementById('myzap-config-form');
 

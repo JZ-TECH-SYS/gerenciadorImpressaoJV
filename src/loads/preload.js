@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('api', {
   cloneRepository: (dirPath, envContent, reinstall = false) => ipcRenderer.invoke('myzap:cloneRepository', dirPath, envContent, reinstall),
   iniciarMyZap: (dirPath) => ipcRenderer.invoke('myzap:iniciarMyZap', dirPath),
   getConnectionStatus: () => ipcRenderer.invoke('myzap:getConnectionStatus'),
+  verifyRealStatus: () => ipcRenderer.invoke('myzap:verifyRealStatus'),
   startSession: () => ipcRenderer.invoke('myzap:startSession'),
   deleteSession: () => ipcRenderer.invoke('myzap:deleteSession')
 });
