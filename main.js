@@ -9,6 +9,7 @@ const path = require('path');
 const Store = require('electron-store');
 const { info, warn, error, abrirPastaLogs, criarArquivoAjuda } = require('./core/utils/logger');
 const { startWatcher, stopWatcher } = require('./core/api/ticketWatcher');
+const { startWhatsappQueueWatcher, stopWhatsappQueueWatcher } = require('./core/api/whatsappQueueWatcher');
 const { createSettings } = require('./core/windows/settings');
 const { openLogViewer } = require('./core/windows/logViewer');
 const { createTestPrint } = require('./core/windows/testPrint');
@@ -19,7 +20,6 @@ const { registerMyZapHandlers } = require('./core/ipc/myzap');
 const { attachAutoUpdaterHandlers, checkForUpdates } = require('./core/updater');
 
 const verificarDiretorio = require('./core/myzap/verificarDiretorio');
-const iniciarMyZap = require('./core/myzap/iniciarMyZap');
 const atualizarEnv = require('./core/myzap/atualizarEnv');
 
 /* ---------- store ---------- */
@@ -88,6 +88,7 @@ function abrirAjuda() {
 
 async function autoStartMyZap() {
   const diretorio = store.get('myzap_diretorio');
+  const envContent = store.get('myzap_envContent');
   console.log('Auto-start MyZap com diretório:', diretorio);
 
   if (!hasValidConfigMyZap()) {
@@ -105,13 +106,13 @@ async function autoStartMyZap() {
       return;
     }
 
-    info('MyZap: Iniciando serviço automático...');
-    const result = await iniciarMyZap(diretorio);
+    info('MyZap: Reiniciando serviço automático...');
+    const result = await atualizarEnv(diretorio, envContent);
 
     if (result.status === 'success') {
-      toast('Serviço MyZap iniciado automaticamente');
+      toast('Serviço MyZap reiniciado automaticamente');
     } else {
-      error('MyZap: Falha na inicialização automática', { metadata: { result } });
+      error('MyZap: Falha ao reiniciar automaticamente', { metadata: { result } });
       createPainelMyZap();
     }
 
@@ -167,6 +168,7 @@ app.whenReady().then(() => {
   }
 
   autoStartMyZap();
+  startWhatsappQueueWatcher();
 
   // Auto update: verifica e aplica (silencioso)
   handleUpdateCheck();
@@ -178,6 +180,9 @@ app.whenReady().then(() => {
   3. Janelas nunca fecham o app (fica só no tray)
 ========================================================= */
 app.on('window-all-closed', e => e.preventDefault());
+app.on('before-quit', () => {
+  stopWhatsappQueueWatcher();
+});
 
 /* =========================================================
    4. IPC handlers
@@ -209,6 +214,7 @@ ipcMain.on('myzap-settings-saved', async (_e, {
   myzap_sessionKey,
   myzap_apiToken,
   myzap_envContent,
+  clickexpress_apiUrl,
   clickexpress_usuario,
   clickexpress_senha
 }) => {
@@ -218,6 +224,7 @@ ipcMain.on('myzap-settings-saved', async (_e, {
       myzap_sessionKey,
       myzap_apiToken,
       myzap_envContent,
+      clickexpress_apiUrl,
       clickexpress_usuario,
       clickexpress_senha: !!clickexpress_senha
     }
@@ -227,9 +234,12 @@ ipcMain.on('myzap-settings-saved', async (_e, {
     myzap_sessionKey,
     myzap_apiToken,
     myzap_envContent,
+    clickexpress_apiUrl,
     clickexpress_usuario,
     clickexpress_senha
   });
+
+  startWhatsappQueueWatcher();
 
   if (myzap_diretorio) {
     const result = await atualizarEnv(myzap_diretorio, myzap_envContent);
