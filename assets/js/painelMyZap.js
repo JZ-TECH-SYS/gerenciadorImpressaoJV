@@ -6,6 +6,12 @@ function setButtonsState({ canStart, canDelete }) {
   if (btnDelete) btnDelete.disabled = !canDelete;
 }
 
+function setIaConfigVisibility(isVisible) {
+  const box = document.getElementById('ia-config-box');
+  if (!box) return;
+  box.classList.toggle('d-none', !isVisible);
+}
+
 
 (async () => {
   try {
@@ -23,6 +29,7 @@ async function loadConfigs() {
     const myzap_sessionKey = (await window.api.getStore('myzap_sessionKey')) ?? '';
     const myzap_apiToken = (await window.api.getStore('myzap_apiToken')) ?? '';
     const myzap_envContent = (await window.api.getStore('myzap_envContent')) ?? '';
+    const myzap_mensagemPadrao = (await window.api.getStore('myzap_mensagemPadrao')) ?? '';
 
     const statusConfig = document.getElementById('status-config');
     if (myzap_diretorio && myzap_sessionKey && myzap_apiToken && myzap_envContent) {
@@ -76,6 +83,7 @@ async function loadConfigs() {
     document.getElementById('input-sessionkey').value = myzap_sessionKey;
     document.getElementById('input-apitoken').value = myzap_apiToken;
     document.getElementById('input-env').value = myzap_envContent;
+    document.getElementById('myzap-mensagem-padrao').value = myzap_mensagemPadrao;
   } catch (e) {
     alert('Erro ao carregar configurações: ' + (e?.message || e));
   }
@@ -113,6 +121,7 @@ async function checkRealConnection() {
       `;
 
       setButtonsState({ canStart: true, canDelete: false });
+      setIaConfigVisibility(false);
       return { isConnected: false, isQrWaiting: false, response };
     }
 
@@ -130,6 +139,7 @@ async function checkRealConnection() {
       `;
 
       setButtonsState({ canStart: false, canDelete: true });
+      setIaConfigVisibility(true);
       return { isConnected: true, isQrWaiting: false, response };
     }
 
@@ -138,6 +148,7 @@ async function checkRealConnection() {
       statusIndicator.textContent = '⏳ Aguardando leitura do QR Code';
 
       setButtonsState({ canStart: false, canDelete: true });
+      setIaConfigVisibility(false);
       return { isConnected: false, isQrWaiting: true, response };
     }
 
@@ -151,6 +162,7 @@ async function checkRealConnection() {
     `;
 
     setButtonsState({ canStart: true, canDelete: false });
+    setIaConfigVisibility(false);
     return { isConnected: false, isQrWaiting: false, response };
 
   } catch (err) {
@@ -166,6 +178,7 @@ async function checkRealConnection() {
     `;
 
     setButtonsState({ canStart: false, canDelete: false });
+    setIaConfigVisibility(false);
     return { isConnected: false, isQrWaiting: false, response: null };
   }
 }
@@ -333,6 +346,37 @@ async function deletarSessao() {
         Não foi possível encerrar a sessão
       </span>
     `;
+  }
+}
+
+async function salvarMensagemPadrao() {
+  const textarea = document.getElementById('myzap-mensagem-padrao');
+  const btnSave = document.getElementById('btn-save-ia-config');
+  const mensagemPadrao = textarea?.value?.trim() || '';
+
+  if (!mensagemPadrao) {
+    alert('Informe uma mensagem padrao antes de salvar.');
+    return;
+  }
+
+  btnSave.disabled = true;
+  const oldText = btnSave.textContent;
+  btnSave.textContent = 'Salvando...';
+
+  try {
+    const response = await window.api.updateIaConfig(mensagemPadrao);
+
+    if (!response || response.status === 'error') {
+      throw new Error(response?.message || 'Falha ao salvar configuracao da IA');
+    }
+
+    alert('Mensagem padrao atualizada com sucesso.');
+  } catch (err) {
+    console.error('Erro ao atualizar mensagem padrao:', err);
+    alert(`Erro ao atualizar mensagem padrao: ${err?.message || err}`);
+  } finally {
+    btnSave.disabled = false;
+    btnSave.textContent = oldText;
   }
 }
 

@@ -5,6 +5,7 @@ const getConnectionStatus = require('../myzap/api/getConnectionStatus');
 const startSession = require('../myzap/api/startSession');
 const deleteSession = require('../myzap/api/deleteSession');
 const verifyRealStatus = require('../myzap/api/verifyRealStatus');
+const updateIaConfig = require('../myzap/api/updateIaConfig');
 const iniciarMyZap = require('../myzap/iniciarMyZap');
 
 function registerMyZapHandlers(ipcMain) {
@@ -104,6 +105,21 @@ function registerMyZapHandlers(ipcMain) {
             return result;
         } catch (error) {
             warn('Falha ao verificar conexão MyZap via IPC', {
+                metadata: { error }
+            });
+            return {
+                status: 'error',
+                message: error.message || String(error)
+            };
+        }
+    });
+
+    ipcMain.handle('myzap:updateIaConfig', async (event, mensagemPadrao) => {
+        try {
+            const result = await updateIaConfig(mensagemPadrao);
+            return result;
+        } catch (error) {
+            warn('Falha ao atualizar configuracao de IA MyZap via IPC', {
                 metadata: { error }
             });
             return {

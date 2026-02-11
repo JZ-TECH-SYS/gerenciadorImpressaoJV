@@ -172,6 +172,13 @@ body {
     font-size: 0.85rem;
 }
 
+.ia-config-box {
+    background-color: #020617;
+    border: 1px solid #334155;
+    border-radius: 12px;
+    padding: 14px;
+}
+
 /* =====================================================
    STATUS CARD
 ===================================================== */

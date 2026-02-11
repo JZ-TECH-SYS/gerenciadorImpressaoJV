@@ -12,5 +12,6 @@ contextBridge.exposeInMainWorld('api', {
   getConnectionStatus: () => ipcRenderer.invoke('myzap:getConnectionStatus'),
   verifyRealStatus: () => ipcRenderer.invoke('myzap:verifyRealStatus'),
   startSession: () => ipcRenderer.invoke('myzap:startSession'),
-  deleteSession: () => ipcRenderer.invoke('myzap:deleteSession')
+  deleteSession: () => ipcRenderer.invoke('myzap:deleteSession'),
+  updateIaConfig: (mensagemPadrao) => ipcRenderer.invoke('myzap:updateIaConfig', mensagemPadrao)
 });
