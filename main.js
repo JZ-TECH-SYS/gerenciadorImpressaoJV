@@ -204,11 +204,32 @@ ipcMain.on('settings-saved', (_e, { idempresa, apiUrl, apiToken, printer }) => {
 });
 
 /* Quando o usuário salva as configurações */
-ipcMain.on('myzap-settings-saved', async (_e, { myzap_diretorio, myzap_sessionKey, myzap_apiToken, myzap_envContent }) => {
+ipcMain.on('myzap-settings-saved', async (_e, {
+  myzap_diretorio,
+  myzap_sessionKey,
+  myzap_apiToken,
+  myzap_envContent,
+  clickexpress_usuario,
+  clickexpress_senha
+}) => {
   info('Configurações salvas pelo usuário', {
-    metadata: { myzap_diretorio, myzap_sessionKey, myzap_apiToken, myzap_envContent }
+    metadata: {
+      myzap_diretorio,
+      myzap_sessionKey,
+      myzap_apiToken,
+      myzap_envContent,
+      clickexpress_usuario,
+      clickexpress_senha: !!clickexpress_senha
+    }
   });
-  store.set({ myzap_diretorio, myzap_sessionKey, myzap_apiToken, myzap_envContent });
+  store.set({
+    myzap_diretorio,
+    myzap_sessionKey,
+    myzap_apiToken,
+    myzap_envContent,
+    clickexpress_usuario,
+    clickexpress_senha
+  });
 
   if (myzap_diretorio) {
     const result = await atualizarEnv(myzap_diretorio, myzap_envContent);

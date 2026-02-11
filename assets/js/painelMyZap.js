@@ -30,6 +30,8 @@ async function loadConfigs() {
     const myzap_apiToken = (await window.api.getStore('myzap_apiToken')) ?? '';
     const myzap_envContent = (await window.api.getStore('myzap_envContent')) ?? '';
     const myzap_mensagemPadrao = (await window.api.getStore('myzap_mensagemPadrao')) ?? '';
+    const clickexpress_usuario = (await window.api.getStore('clickexpress_usuario')) ?? '';
+    const clickexpress_senha = (await window.api.getStore('clickexpress_senha')) ?? '';
 
     const statusConfig = document.getElementById('status-config');
     if (myzap_diretorio && myzap_sessionKey && myzap_apiToken && myzap_envContent) {
@@ -84,6 +86,8 @@ async function loadConfigs() {
     document.getElementById('input-apitoken').value = myzap_apiToken;
     document.getElementById('input-env').value = myzap_envContent;
     document.getElementById('myzap-mensagem-padrao').value = myzap_mensagemPadrao;
+    document.getElementById('input-clickexpress-usuario').value = clickexpress_usuario;
+    document.getElementById('input-clickexpress-senha').value = clickexpress_senha;
   } catch (e) {
     alert('Erro ao carregar configurações: ' + (e?.message || e));
   }
@@ -389,6 +393,8 @@ cfg_myzap.onsubmit = (e) => {
   const myzap_sessionKey = document.getElementById('input-sessionkey').value.trim();
   const myzap_apiToken = document.getElementById('input-apitoken').value.trim();
   const myzap_envContent = document.getElementById('input-env').value.trim();
+  const clickexpress_usuario = document.getElementById('input-clickexpress-usuario').value.trim();
+  const clickexpress_senha = document.getElementById('input-clickexpress-senha').value.trim();
 
   if (!myzap_diretorio.toLowerCase().includes('/myzap')) {
     alert('O caminho do diretório deve se remeter ao diretório "myzap". Por exemplo, C:/JzTech/projects/myzap.');
@@ -399,7 +405,9 @@ cfg_myzap.onsubmit = (e) => {
     myzap_diretorio,
     myzap_sessionKey,
     myzap_apiToken,
-    myzap_envContent
+    myzap_envContent,
+    clickexpress_usuario,
+    clickexpress_senha
   });
 
   alert('Configurações salvas!');
