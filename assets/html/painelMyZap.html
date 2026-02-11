@@ -88,6 +88,18 @@
                                     Aguardando informações para gerar o QRCode ou iniciar a sessão.
                                 </div>
 
+                                <div id="ia-config-box" class="ia-config-box d-none mt-3">
+                                    <label class="form-label" for="myzap-mensagem-padrao">Mensagem padrao do MyZap</label>
+                                    <textarea id="myzap-mensagem-padrao" class="form-control" rows="4"
+                                        placeholder="Digite a mensagem padrao para respostas da IA"></textarea>
+                                    <div class="d-flex justify-content-end mt-2">
+                                        <button class="btn btn-primary" type="button" id="btn-save-ia-config"
+                                            onclick="salvarMensagemPadrao()">
+                                            Salvar mensagem padrao
+                                        </button>
+                                    </div>
+                                </div>
+
                                 <button class="btn btn-success mt-2" type="button" id="btn-start-session" disabled onclick="iniciarSessao()">
                                     Iniciar instância
                                 </button>
