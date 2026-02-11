@@ -28,7 +28,7 @@ async function getConnectionStatus() {
             headers: {
                 "Content-Type": "application/json",
                 apitoken: token,
-                sessionkey: 1
+                sessionkey: session
             }
         });
         const data = await res.json();

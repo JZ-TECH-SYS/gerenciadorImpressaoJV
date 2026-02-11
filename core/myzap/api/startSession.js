@@ -31,7 +31,7 @@ async function startSession() {
             headers: {
                 "Content-Type": "application/json",
                 apitoken: token,
-                sessionkey: 1
+                sessionkey: session
             },
             body: JSON.stringify({ session })
         });
