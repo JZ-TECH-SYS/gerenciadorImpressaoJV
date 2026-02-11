@@ -336,7 +336,6 @@ async function deletarSessao() {
   }
 }
 
-
 const cfg_myzap = document.getElementById('myzap-config-form');
 
 cfg_myzap.onsubmit = (e) => {
