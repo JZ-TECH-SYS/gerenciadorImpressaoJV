@@ -30,6 +30,7 @@ async function loadConfigs() {
     const myzap_apiToken = (await window.api.getStore('myzap_apiToken')) ?? '';
     const myzap_envContent = (await window.api.getStore('myzap_envContent')) ?? '';
     const myzap_mensagemPadrao = (await window.api.getStore('myzap_mensagemPadrao')) ?? '';
+    const clickexpress_apiUrl = (await window.api.getStore('clickexpress_apiUrl')) ?? '';
     const clickexpress_usuario = (await window.api.getStore('clickexpress_usuario')) ?? '';
     const clickexpress_senha = (await window.api.getStore('clickexpress_senha')) ?? '';
 
@@ -86,6 +87,7 @@ async function loadConfigs() {
     document.getElementById('input-apitoken').value = myzap_apiToken;
     document.getElementById('input-env').value = myzap_envContent;
     document.getElementById('myzap-mensagem-padrao').value = myzap_mensagemPadrao;
+    document.getElementById('input-clickexpress-apiurl').value = clickexpress_apiUrl;
     document.getElementById('input-clickexpress-usuario').value = clickexpress_usuario;
     document.getElementById('input-clickexpress-senha').value = clickexpress_senha;
   } catch (e) {
@@ -393,6 +395,7 @@ cfg_myzap.onsubmit = (e) => {
   const myzap_sessionKey = document.getElementById('input-sessionkey').value.trim();
   const myzap_apiToken = document.getElementById('input-apitoken').value.trim();
   const myzap_envContent = document.getElementById('input-env').value.trim();
+  const clickexpress_apiUrl = document.getElementById('input-clickexpress-apiurl').value.trim();
   const clickexpress_usuario = document.getElementById('input-clickexpress-usuario').value.trim();
   const clickexpress_senha = document.getElementById('input-clickexpress-senha').value.trim();
 
@@ -406,6 +409,7 @@ cfg_myzap.onsubmit = (e) => {
     myzap_sessionKey,
     myzap_apiToken,
     myzap_envContent,
+    clickexpress_apiUrl,
     clickexpress_usuario,
     clickexpress_senha
   });
