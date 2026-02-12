@@ -293,6 +293,10 @@ async function startWhatsappQueueWatcher() {
 }
 
 function stopWhatsappQueueWatcher() {
+  if (!ativo && !timer) {
+    return { status: 'success', message: 'Watcher da fila MyZap ja estava parado.' };
+  }
+
   if (timer) {
     clearInterval(timer);
     timer = null;
@@ -304,14 +308,22 @@ function stopWhatsappQueueWatcher() {
   info('Watcher da fila MyZap parado', {
     metadata: { area: 'whatsappQueueWatcher' }
   });
+
+  return { status: 'success', message: 'Watcher da fila MyZap parado com sucesso.' };
 }
 
 function getWhatsappQueueWatcherStatus() {
+  const proximaExecucaoEm = ultimaExecucaoEm
+    ? new Date(new Date(ultimaExecucaoEm).getTime() + LOOP_INTERVAL_MS).toISOString()
+    : null;
+
   return {
     ativo,
     processando,
     ultimoLote,
     ultimaExecucaoEm,
+    proximaExecucaoEm,
+    loopIntervalMs: LOOP_INTERVAL_MS,
     ultimoErro
   };
 }

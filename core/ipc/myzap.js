@@ -10,6 +10,7 @@ const iniciarMyZap = require('../myzap/iniciarMyZap');
 const {
     getUltimosPendentesMyZap,
     startWhatsappQueueWatcher,
+    stopWhatsappQueueWatcher,
     getWhatsappQueueWatcherStatus
 } = require('../api/whatsappQueueWatcher');
 
@@ -139,6 +140,20 @@ function registerMyZapHandlers(ipcMain) {
             return await startWhatsappQueueWatcher();
         } catch (error) {
             warn('Falha ao iniciar watcher de fila MyZap via IPC', {
+                metadata: { error }
+            });
+            return {
+                status: 'error',
+                message: error.message || String(error)
+            };
+        }
+    });
+
+    ipcMain.handle('myzap:stopQueueWatcher', async () => {
+        try {
+            return stopWhatsappQueueWatcher();
+        } catch (error) {
+            warn('Falha ao parar watcher de fila MyZap via IPC', {
                 metadata: { error }
             });
             return {

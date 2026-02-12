@@ -62,3 +62,9 @@ body {
     white-space: normal;
     word-break: break-word;
 }
+
+.queue-error-alert {
+    font-size: 0.9rem;
+    border-radius: 10px;
+    margin-bottom: 12px;
+}
