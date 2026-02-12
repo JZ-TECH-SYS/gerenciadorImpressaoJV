@@ -33,6 +33,7 @@ async function loadConfigs() {
     const clickexpress_apiUrl = (await window.api.getStore('clickexpress_apiUrl')) ?? '';
     const clickexpress_usuario = (await window.api.getStore('clickexpress_usuario')) ?? '';
     const clickexpress_senha = (await window.api.getStore('clickexpress_senha')) ?? '';
+    const clickexpress_queueToken = (await window.api.getStore('clickexpress_queueToken')) ?? '';
 
     const statusConfig = document.getElementById('status-config');
     if (myzap_diretorio && myzap_sessionKey && myzap_apiToken && myzap_envContent) {
@@ -90,6 +91,7 @@ async function loadConfigs() {
     document.getElementById('input-clickexpress-apiurl').value = clickexpress_apiUrl;
     document.getElementById('input-clickexpress-usuario').value = clickexpress_usuario;
     document.getElementById('input-clickexpress-senha').value = clickexpress_senha;
+    document.getElementById('input-clickexpress-token').value = clickexpress_queueToken;
   } catch (e) {
     alert('Erro ao carregar configurações: ' + (e?.message || e));
   }
@@ -398,6 +400,7 @@ cfg_myzap.onsubmit = (e) => {
   const clickexpress_apiUrl = document.getElementById('input-clickexpress-apiurl').value.trim();
   const clickexpress_usuario = document.getElementById('input-clickexpress-usuario').value.trim();
   const clickexpress_senha = document.getElementById('input-clickexpress-senha').value.trim();
+  const clickexpress_queueToken = document.getElementById('input-clickexpress-token').value.trim();
 
   if (!myzap_diretorio.toLowerCase().includes('/myzap')) {
     alert('O caminho do diretório deve se remeter ao diretório "myzap". Por exemplo, C:/JzTech/projects/myzap.');
@@ -411,7 +414,8 @@ cfg_myzap.onsubmit = (e) => {
     myzap_envContent,
     clickexpress_apiUrl,
     clickexpress_usuario,
-    clickexpress_senha
+    clickexpress_senha,
+    clickexpress_queueToken
   });
 
   alert('Configurações salvas!');

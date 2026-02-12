@@ -8,7 +8,7 @@ const verifyRealStatus = require('../myzap/api/verifyRealStatus');
 const updateIaConfig = require('../myzap/api/updateIaConfig');
 const iniciarMyZap = require('../myzap/iniciarMyZap');
 const {
-    listarPendentesMyZap,
+    getUltimosPendentesMyZap,
     startWhatsappQueueWatcher,
     getWhatsappQueueWatcherStatus
 } = require('../api/whatsappQueueWatcher');
@@ -167,7 +167,7 @@ function registerMyZapHandlers(ipcMain) {
 
     ipcMain.handle('myzap:getQueuePendentes', async () => {
         try {
-            return await listarPendentesMyZap();
+            return getUltimosPendentesMyZap();
         } catch (error) {
             warn('Falha ao obter pendentes da fila MyZap via IPC', {
                 metadata: { error }
