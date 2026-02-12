@@ -12,7 +12,7 @@
     <div class="container py-4">
         <div class="card shadow-sm">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">📬 Fila MyZap</h5>
+                <h5 class="mb-0">Fila MyZap</h5>
                 <button id="btn-refresh-fila" class="btn btn-sm btn-outline-secondary" type="button">
                     Atualizar
                 </button>
@@ -24,12 +24,21 @@
                         <span id="queue-process-status" class="badge bg-secondary status-badge">Parado</span>
                     </div>
                     <div class="text-muted-small mb-3">
-                        Última execução: <span id="queue-last-run">-</span> |
-                        Último lote: <span id="queue-last-batch">0</span>
+                        Ultima execucao: <span id="queue-last-run">-</span> |
+                        Ultimo lote: <span id="queue-last-batch">0</span> |
+                        Proxima requisicao em: <span id="queue-next-run-countdown">-</span>
                     </div>
-                    <button id="btn-start-queue" class="btn btn-success" type="button">
-                        ▶️ Iniciar processo da fila
-                    </button>
+
+                    <div id="queue-error-alert" class="alert alert-danger queue-error-alert d-none mb-3" role="alert"></div>
+
+                    <div class="d-flex gap-2 flex-wrap">
+                        <button id="btn-start-queue" class="btn btn-success" type="button">
+                            Iniciar processo da fila
+                        </button>
+                        <button id="btn-stop-queue" class="btn btn-outline-danger" type="button">
+                            Parar processo da fila
+                        </button>
+                    </div>
                 </div>
 
                 <div class="fila-card">
@@ -42,10 +51,10 @@
                             <thead>
                                 <tr>
                                     <th>ID Fila</th>
-                                    <th>Número</th>
+                                    <th>Numero</th>
                                     <th>Mensagem</th>
                                     <th>Status</th>
-                                    <th>Data inclusão</th>
+                                    <th>Data inclusao</th>
                                 </tr>
                             </thead>
                             <tbody id="queue-pendentes-body">

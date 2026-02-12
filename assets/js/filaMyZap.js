@@ -1,8 +1,28 @@
+const LOOP_INTERVAL_FALLBACK_MS = 30000;
+
+let nextRunAt = null;
+let pollingHandle = null;
+let countdownHandle = null;
+
 function formatDateTime(value) {
   if (!value) return '-';
   const dt = new Date(value);
   if (Number.isNaN(dt.getTime())) return String(value);
   return dt.toLocaleString('pt-BR');
+}
+
+function showInlineError(message) {
+  const alertBox = document.getElementById('queue-error-alert');
+  if (!alertBox) return;
+
+  if (!message) {
+    alertBox.classList.add('d-none');
+    alertBox.textContent = '';
+    return;
+  }
+
+  alertBox.textContent = String(message);
+  alertBox.classList.remove('d-none');
 }
 
 function extrairResumoMensagem(jsonStr) {
@@ -11,8 +31,8 @@ function extrairResumoMensagem(jsonStr) {
     const numero = payload?.data?.number || '-';
     const texto = payload?.data?.text || '-';
     return { numero, texto };
-  } catch (e) {
-    return { numero: '-', texto: 'JSON inválido' };
+  } catch (_e) {
+    return { numero: '-', texto: 'JSON invalido' };
   }
 }
 
@@ -48,6 +68,40 @@ function renderFilaPendentes(mensagens) {
   tbody.innerHTML = linhas;
 }
 
+function setButtonsState({ ativo, processando }) {
+  const btnStart = document.getElementById('btn-start-queue');
+  const btnStop = document.getElementById('btn-stop-queue');
+
+  if (btnStart) {
+    btnStart.disabled = Boolean(ativo || processando);
+  }
+
+  if (btnStop) {
+    btnStop.disabled = !Boolean(ativo || processando);
+  }
+}
+
+function renderCountdown() {
+  const countdown = document.getElementById('queue-next-run-countdown');
+  if (!countdown) return;
+
+  if (!nextRunAt) {
+    countdown.textContent = '-';
+    return;
+  }
+
+  const remainingMs = nextRunAt - Date.now();
+  if (remainingMs <= 0) {
+    countdown.textContent = 'agora';
+    return;
+  }
+
+  const totalSec = Math.ceil(remainingMs / 1000);
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  countdown.textContent = `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+}
+
 async function atualizarStatusProcessoFila() {
   const badge = document.getElementById('queue-process-status');
   const lastRun = document.getElementById('queue-last-run');
@@ -65,11 +119,31 @@ async function atualizarStatusProcessoFila() {
 
     lastRun.textContent = formatDateTime(status?.ultimaExecucaoEm);
     lastBatch.textContent = String(status?.ultimoLote ?? 0);
+
+    setButtonsState({ ativo, processando });
+
+    const loopIntervalMs = Number(status?.loopIntervalMs) || LOOP_INTERVAL_FALLBACK_MS;
+    const nextRunFromApi = status?.proximaExecucaoEm ? new Date(status.proximaExecucaoEm).getTime() : null;
+    if (ativo && nextRunFromApi && Number.isFinite(nextRunFromApi)) {
+      nextRunAt = nextRunFromApi;
+    } else if (ativo && status?.ultimaExecucaoEm) {
+      const lastRunTs = new Date(status.ultimaExecucaoEm).getTime();
+      nextRunAt = Number.isFinite(lastRunTs) ? (lastRunTs + loopIntervalMs) : null;
+    } else {
+      nextRunAt = null;
+    }
+
+    showInlineError(status?.ultimoErro || '');
   } catch (e) {
     badge.textContent = 'Erro';
     badge.classList.remove('bg-secondary', 'bg-success', 'bg-warning');
     badge.classList.add('bg-danger');
+    setButtonsState({ ativo: false, processando: false });
+    nextRunAt = null;
+    showInlineError(`Falha ao obter status da fila: ${e?.message || e}`);
   }
+
+  renderCountdown();
 }
 
 async function atualizarFilaMyZap() {
@@ -78,6 +152,7 @@ async function atualizarFilaMyZap() {
     renderFilaPendentes(Array.isArray(pendentes) ? pendentes : []);
   } catch (e) {
     renderFilaPendentes([]);
+    showInlineError(`Falha ao carregar pendentes: ${e?.message || e}`);
   }
 }
 
@@ -94,36 +169,71 @@ async function iniciarFilaMyZap() {
     if (result?.status !== 'success') {
       throw new Error(result?.message || 'Falha ao iniciar a fila');
     }
+
+    showInlineError('');
     await atualizarStatusProcessoFila();
-    alert(result?.message || 'Processo da fila iniciado.');
+    await atualizarFilaMyZap();
   } catch (e) {
-    alert(`Erro ao iniciar processo da fila: ${e?.message || e}`);
+    showInlineError(`Erro ao iniciar processo da fila: ${e?.message || e}`);
   } finally {
-    btn.disabled = false;
     btn.textContent = txt;
+    await atualizarStatusProcessoFila();
   }
+}
+
+async function pararFilaMyZap() {
+  const btn = document.getElementById('btn-stop-queue');
+  if (!btn) return;
+
+  btn.disabled = true;
+  const txt = btn.textContent;
+  btn.textContent = 'Parando...';
+
+  try {
+    const result = await window.api.stopQueueWatcher();
+    if (result?.status !== 'success') {
+      throw new Error(result?.message || 'Falha ao parar a fila');
+    }
+
+    showInlineError('');
+    await atualizarStatusProcessoFila();
+  } catch (e) {
+    showInlineError(`Erro ao parar processo da fila: ${e?.message || e}`);
+  } finally {
+    btn.textContent = txt;
+    await atualizarStatusProcessoFila();
+  }
+}
+
+async function refreshAll() {
+  await atualizarStatusProcessoFila();
+  await atualizarFilaMyZap();
 }
 
 (async () => {
   const btnStart = document.getElementById('btn-start-queue');
+  const btnStop = document.getElementById('btn-stop-queue');
   const btnRefresh = document.getElementById('btn-refresh-fila');
 
   if (btnStart) {
     btnStart.addEventListener('click', iniciarFilaMyZap);
   }
 
-  if (btnRefresh) {
-    btnRefresh.addEventListener('click', async () => {
-      await atualizarStatusProcessoFila();
-      await atualizarFilaMyZap();
-    });
+  if (btnStop) {
+    btnStop.addEventListener('click', pararFilaMyZap);
   }
 
-  await atualizarStatusProcessoFila();
-  await atualizarFilaMyZap();
+  if (btnRefresh) {
+    btnRefresh.addEventListener('click', refreshAll);
+  }
 
-  setInterval(async () => {
-    await atualizarStatusProcessoFila();
-    await atualizarFilaMyZap();
-  }, 3000);
+  await refreshAll();
+
+  pollingHandle = setInterval(refreshAll, 3000);
+  countdownHandle = setInterval(renderCountdown, 1000);
+
+  window.addEventListener('beforeunload', () => {
+    if (pollingHandle) clearInterval(pollingHandle);
+    if (countdownHandle) clearInterval(countdownHandle);
+  });
 })();

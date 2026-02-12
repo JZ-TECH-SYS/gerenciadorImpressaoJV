@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('api', {
   deleteSession: () => ipcRenderer.invoke('myzap:deleteSession'),
   updateIaConfig: (mensagemPadrao) => ipcRenderer.invoke('myzap:updateIaConfig', mensagemPadrao),
   startQueueWatcher: () => ipcRenderer.invoke('myzap:startQueueWatcher'),
+  stopQueueWatcher: () => ipcRenderer.invoke('myzap:stopQueueWatcher'),
   getQueueWatcherStatus: () => ipcRenderer.invoke('myzap:getQueueWatcherStatus'),
   getQueuePendentes: () => ipcRenderer.invoke('myzap:getQueuePendentes')
 });
