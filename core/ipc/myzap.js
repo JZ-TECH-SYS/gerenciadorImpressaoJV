@@ -7,6 +7,11 @@ const deleteSession = require('../myzap/api/deleteSession');
 const verifyRealStatus = require('../myzap/api/verifyRealStatus');
 const updateIaConfig = require('../myzap/api/updateIaConfig');
 const iniciarMyZap = require('../myzap/iniciarMyZap');
+const {
+    listarPendentesMyZap,
+    startWhatsappQueueWatcher,
+    getWhatsappQueueWatcherStatus
+} = require('../api/whatsappQueueWatcher');
 
 function registerMyZapHandlers(ipcMain) {
     ipcMain.handle('myzap:checkDirectoryHasFiles', async (event, dirPath) => {
@@ -126,6 +131,48 @@ function registerMyZapHandlers(ipcMain) {
                 status: 'error',
                 message: error.message || String(error)
             };
+        }
+    });
+
+    ipcMain.handle('myzap:startQueueWatcher', async () => {
+        try {
+            return await startWhatsappQueueWatcher();
+        } catch (error) {
+            warn('Falha ao iniciar watcher de fila MyZap via IPC', {
+                metadata: { error }
+            });
+            return {
+                status: 'error',
+                message: error.message || String(error)
+            };
+        }
+    });
+
+    ipcMain.handle('myzap:getQueueWatcherStatus', async () => {
+        try {
+            return getWhatsappQueueWatcherStatus();
+        } catch (error) {
+            warn('Falha ao obter status do watcher de fila MyZap via IPC', {
+                metadata: { error }
+            });
+            return {
+                ativo: false,
+                processando: false,
+                ultimoLote: 0,
+                ultimaExecucaoEm: null,
+                ultimoErro: error.message || String(error)
+            };
+        }
+    });
+
+    ipcMain.handle('myzap:getQueuePendentes', async () => {
+        try {
+            return await listarPendentesMyZap();
+        } catch (error) {
+            warn('Falha ao obter pendentes da fila MyZap via IPC', {
+                metadata: { error }
+            });
+            return [];
         }
     });
 }

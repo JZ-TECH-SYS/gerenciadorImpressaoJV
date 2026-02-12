@@ -14,7 +14,8 @@ function buildMenuTemplate(printing, callbacks) {
     abrirPastaLogs,
     abrirAjuda,
     checkUpdates,
-    createPainelMyZap
+    createPainelMyZap,
+    createFilaMyZap
   } = callbacks;
 
   return [
@@ -29,6 +30,7 @@ function buildMenuTemplate(printing, callbacks) {
       enabled: false
     },
     { label: '🔗 Painel MyZap', click: createPainelMyZap },
+    { label: '📬 Fila MyZap', click: createFilaMyZap },
     { type: 'separator' },
     { label: '🖨️ Testar Impressão', click: createTestPrint },
     { label: '📄 Ver Logs', click: openLogViewer },

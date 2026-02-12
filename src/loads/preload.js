@@ -13,5 +13,8 @@ contextBridge.exposeInMainWorld('api', {
   verifyRealStatus: () => ipcRenderer.invoke('myzap:verifyRealStatus'),
   startSession: () => ipcRenderer.invoke('myzap:startSession'),
   deleteSession: () => ipcRenderer.invoke('myzap:deleteSession'),
-  updateIaConfig: (mensagemPadrao) => ipcRenderer.invoke('myzap:updateIaConfig', mensagemPadrao)
+  updateIaConfig: (mensagemPadrao) => ipcRenderer.invoke('myzap:updateIaConfig', mensagemPadrao),
+  startQueueWatcher: () => ipcRenderer.invoke('myzap:startQueueWatcher'),
+  getQueueWatcherStatus: () => ipcRenderer.invoke('myzap:getQueueWatcherStatus'),
+  getQueuePendentes: () => ipcRenderer.invoke('myzap:getQueuePendentes')
 });

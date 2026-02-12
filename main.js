@@ -9,11 +9,12 @@ const path = require('path');
 const Store = require('electron-store');
 const { info, warn, error, abrirPastaLogs, criarArquivoAjuda } = require('./core/utils/logger');
 const { startWatcher, stopWatcher } = require('./core/api/ticketWatcher');
-const { startWhatsappQueueWatcher, stopWhatsappQueueWatcher } = require('./core/api/whatsappQueueWatcher');
+const { stopWhatsappQueueWatcher } = require('./core/api/whatsappQueueWatcher');
 const { createSettings } = require('./core/windows/settings');
 const { openLogViewer } = require('./core/windows/logViewer');
 const { createTestPrint } = require('./core/windows/testPrint');
 const { createPainelMyZap } = require('./core/windows/painelMyZap');
+const { createFilaMyZap } = require('./core/windows/filaMyZap');
 const trayManager = require('./core/windows/tray');
 const { registerPrinterHandlers } = require('./core/ipc/printers');
 const { registerMyZapHandlers } = require('./core/ipc/myzap');
@@ -141,7 +142,8 @@ app.whenReady().then(() => {
       abrirPastaLogs,
       abrirAjuda,
       checkUpdates: handleUpdateCheck,
-      createPainelMyZap
+      createPainelMyZap,
+      createFilaMyZap
     },
     () => printing,
     app.getVersion()
@@ -168,7 +170,6 @@ app.whenReady().then(() => {
   }
 
   autoStartMyZap();
-  startWhatsappQueueWatcher();
 
   // Auto update: verifica e aplica (silencioso)
   handleUpdateCheck();
@@ -238,8 +239,6 @@ ipcMain.on('myzap-settings-saved', async (_e, {
     clickexpress_usuario,
     clickexpress_senha
   });
-
-  startWhatsappQueueWatcher();
 
   if (myzap_diretorio) {
     const result = await atualizarEnv(myzap_diretorio, myzap_envContent);
