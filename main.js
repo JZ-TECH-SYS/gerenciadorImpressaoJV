@@ -217,7 +217,8 @@ ipcMain.on('myzap-settings-saved', async (_e, {
   myzap_envContent,
   clickexpress_apiUrl,
   clickexpress_usuario,
-  clickexpress_senha
+  clickexpress_senha,
+  clickexpress_queueToken
 }) => {
   info('Configurações salvas pelo usuário', {
     metadata: {
@@ -227,7 +228,8 @@ ipcMain.on('myzap-settings-saved', async (_e, {
       myzap_envContent,
       clickexpress_apiUrl,
       clickexpress_usuario,
-      clickexpress_senha: !!clickexpress_senha
+      clickexpress_senha: !!clickexpress_senha,
+      clickexpress_queueToken: !!clickexpress_queueToken
     }
   });
   store.set({
@@ -237,7 +239,8 @@ ipcMain.on('myzap-settings-saved', async (_e, {
     myzap_envContent,
     clickexpress_apiUrl,
     clickexpress_usuario,
-    clickexpress_senha
+    clickexpress_senha,
+    clickexpress_queueToken
   });
 
   if (myzap_diretorio) {
