@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Fila MyZap</title>
+    <link rel="stylesheet" href="../css/bootstrap5.0.2.min.css" />
+    <link rel="stylesheet" href="../css/filaMyZap.css" />
+</head>
+
+<body>
+    <div class="container py-4">
+        <div class="card shadow-sm">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">📬 Fila MyZap</h5>
+                <button id="btn-refresh-fila" class="btn btn-sm btn-outline-secondary" type="button">
+                    Atualizar
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="fila-card mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <strong>Processo da fila</strong>
+                        <span id="queue-process-status" class="badge bg-secondary status-badge">Parado</span>
+                    </div>
+                    <div class="text-muted-small mb-3">
+                        Última execução: <span id="queue-last-run">-</span> |
+                        Último lote: <span id="queue-last-batch">0</span>
+                    </div>
+                    <button id="btn-start-queue" class="btn btn-success" type="button">
+                        ▶️ Iniciar processo da fila
+                    </button>
+                </div>
+
+                <div class="fila-card">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <strong>Mensagens pendentes</strong>
+                        <span id="queue-total-pendentes" class="badge bg-secondary status-badge">0</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-dark table-sm align-middle mb-0 queue-table">
+                            <thead>
+                                <tr>
+                                    <th>ID Fila</th>
+                                    <th>Número</th>
+                                    <th>Mensagem</th>
+                                    <th>Status</th>
+                                    <th>Data inclusão</th>
+                                </tr>
+                            </thead>
+                            <tbody id="queue-pendentes-body">
+                                <tr>
+                                    <td colspan="5" class="text-center text-muted-small">Carregando fila...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="../js/bootstrap5.0.2.js"></script>
+    <script src="../js/filaMyZap.js"></script>
+</body>
+
+</html>
