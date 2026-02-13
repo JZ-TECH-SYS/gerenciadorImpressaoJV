@@ -31,8 +31,6 @@ async function loadConfigs() {
     const myzap_envContent = (await window.api.getStore('myzap_envContent')) ?? '';
     const myzap_mensagemPadrao = (await window.api.getStore('myzap_mensagemPadrao')) ?? '';
     const clickexpress_apiUrl = (await window.api.getStore('clickexpress_apiUrl')) ?? '';
-    const clickexpress_usuario = (await window.api.getStore('clickexpress_usuario')) ?? '';
-    const clickexpress_senha = (await window.api.getStore('clickexpress_senha')) ?? '';
     const clickexpress_queueToken = (await window.api.getStore('clickexpress_queueToken')) ?? '';
 
     const statusConfig = document.getElementById('status-config');
@@ -89,8 +87,6 @@ async function loadConfigs() {
     document.getElementById('input-env').value = myzap_envContent;
     document.getElementById('myzap-mensagem-padrao').value = myzap_mensagemPadrao;
     document.getElementById('input-clickexpress-apiurl').value = clickexpress_apiUrl;
-    document.getElementById('input-clickexpress-usuario').value = clickexpress_usuario;
-    document.getElementById('input-clickexpress-senha').value = clickexpress_senha;
     document.getElementById('input-clickexpress-token').value = clickexpress_queueToken;
   } catch (e) {
     alert('Erro ao carregar configurações: ' + (e?.message || e));
@@ -398,8 +394,6 @@ cfg_myzap.onsubmit = (e) => {
   const myzap_apiToken = document.getElementById('input-apitoken').value.trim();
   const myzap_envContent = document.getElementById('input-env').value.trim();
   const clickexpress_apiUrl = document.getElementById('input-clickexpress-apiurl').value.trim();
-  const clickexpress_usuario = document.getElementById('input-clickexpress-usuario').value.trim();
-  const clickexpress_senha = document.getElementById('input-clickexpress-senha').value.trim();
   const clickexpress_queueToken = document.getElementById('input-clickexpress-token').value.trim();
 
   if (!myzap_diretorio.toLowerCase().includes('/myzap')) {
@@ -413,8 +407,6 @@ cfg_myzap.onsubmit = (e) => {
     myzap_apiToken,
     myzap_envContent,
     clickexpress_apiUrl,
-    clickexpress_usuario,
-    clickexpress_senha,
     clickexpress_queueToken
   });
 
@@ -584,3 +576,4 @@ async function reinstallMyZap() {
     }, 1500);
   }
 }
+

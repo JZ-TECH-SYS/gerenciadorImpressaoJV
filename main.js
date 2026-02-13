@@ -259,8 +259,6 @@ ipcMain.on('myzap-settings-saved', async (_e, {
   myzap_apiToken,
   myzap_envContent,
   clickexpress_apiUrl,
-  clickexpress_usuario,
-  clickexpress_senha,
   clickexpress_queueToken
 }) => {
   info('Configurações salvas pelo usuário', {
@@ -269,9 +267,7 @@ ipcMain.on('myzap-settings-saved', async (_e, {
       myzap_sessionKey,
       myzap_apiToken,
       myzap_envContent,
-      clickexpress_apiUrl,
-      clickexpress_usuario,
-      clickexpress_senha: !!clickexpress_senha,
+      clickexpress_apiUrl: !!clickexpress_apiUrl,
       clickexpress_queueToken: !!clickexpress_queueToken
     }
   });
@@ -281,8 +277,6 @@ ipcMain.on('myzap-settings-saved', async (_e, {
     myzap_apiToken,
     myzap_envContent,
     clickexpress_apiUrl,
-    clickexpress_usuario,
-    clickexpress_senha,
     clickexpress_queueToken
   });
 
@@ -308,6 +302,8 @@ process.on('unhandledRejection', (reason) => {
     metadata: { error: reason }
   });
 });
+
+
 
 
 
