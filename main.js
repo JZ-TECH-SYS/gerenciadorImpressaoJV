@@ -9,7 +9,7 @@ const path = require('path');
 const Store = require('electron-store');
 const { info, warn, error, abrirPastaLogs, criarArquivoAjuda } = require('./core/utils/logger');
 const { startWatcher, stopWatcher } = require('./core/api/ticketWatcher');
-const { stopWhatsappQueueWatcher } = require('./core/api/whatsappQueueWatcher');
+const { startWhatsappQueueWatcher, stopWhatsappQueueWatcher } = require('./core/api/whatsappQueueWatcher');
 const { createSettings } = require('./core/windows/settings');
 const { openLogViewer } = require('./core/windows/logViewer');
 const { createTestPrint } = require('./core/windows/testPrint');
@@ -29,7 +29,8 @@ const store = new Store({
 });
 
 /* ---------- state ---------- */
-let printing = false; // será alterado depois
+let printing = false;
+let queueAutoStartTimer = null; // será alterado depois
 
 /* =========================================================
    1. Helpers
@@ -123,6 +124,43 @@ async function autoStartMyZap() {
   }
 }
 
+
+async function tryStartQueueWatcherAuto() {
+  try {
+    const result = await startWhatsappQueueWatcher();
+    if (result?.status === 'success') {
+      if (queueAutoStartTimer) {
+        clearInterval(queueAutoStartTimer);
+        queueAutoStartTimer = null;
+      }
+      info('Watcher da fila MyZap iniciado automaticamente', {
+        metadata: { trigger: 'inicializacao', message: result?.message }
+      });
+      return true;
+    }
+
+    warn('Fila MyZap ainda nao foi iniciada automaticamente', {
+      metadata: { message: result?.message || 'resultado sem mensagem' }
+    });
+    return false;
+  } catch (err) {
+    warn('Erro ao iniciar automaticamente o watcher da fila MyZap', {
+      metadata: { error: err }
+    });
+    return false;
+  }
+}
+
+function scheduleQueueAutoStart() {
+  if (queueAutoStartTimer) {
+    return;
+  }
+
+  tryStartQueueWatcherAuto();
+  queueAutoStartTimer = setInterval(() => {
+    tryStartQueueWatcherAuto();
+  }, 30000);
+}
 attachAutoUpdaterHandlers(autoUpdater, { toast });
 
 /* =========================================================
@@ -170,6 +208,7 @@ app.whenReady().then(() => {
   }
 
   autoStartMyZap();
+  scheduleQueueAutoStart();
 
   // Auto update: verifica e aplica (silencioso)
   handleUpdateCheck();
@@ -182,6 +221,10 @@ app.whenReady().then(() => {
 ========================================================= */
 app.on('window-all-closed', e => e.preventDefault());
 app.on('before-quit', () => {
+  if (queueAutoStartTimer) {
+    clearInterval(queueAutoStartTimer);
+    queueAutoStartTimer = null;
+  }
   stopWhatsappQueueWatcher();
 });
 
@@ -250,6 +293,8 @@ ipcMain.on('myzap-settings-saved', async (_e, {
       toast('MyZap: Configurações atualizadas!');
     }
   }
+
+  scheduleQueueAutoStart();
 });
 
 process.on('uncaughtException', (err) => {
@@ -263,4 +308,10 @@ process.on('unhandledRejection', (reason) => {
     metadata: { error: reason }
   });
 });
+
+
+
+
+
+
 

@@ -213,7 +213,6 @@ async function refreshAll() {
 (async () => {
   const btnStart = document.getElementById('btn-start-queue');
   const btnStop = document.getElementById('btn-stop-queue');
-  const btnRefresh = document.getElementById('btn-refresh-fila');
 
   if (btnStart) {
     btnStart.addEventListener('click', iniciarFilaMyZap);
@@ -221,10 +220,6 @@ async function refreshAll() {
 
   if (btnStop) {
     btnStop.addEventListener('click', pararFilaMyZap);
-  }
-
-  if (btnRefresh) {
-    btnRefresh.addEventListener('click', refreshAll);
   }
 
   await refreshAll();
