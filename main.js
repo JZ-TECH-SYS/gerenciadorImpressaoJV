@@ -10,6 +10,7 @@ const Store = require('electron-store');
 const { info, warn, error, abrirPastaLogs, criarArquivoAjuda } = require('./core/utils/logger');
 const { startWatcher, stopWatcher } = require('./core/api/ticketWatcher');
 const { startWhatsappQueueWatcher, stopWhatsappQueueWatcher } = require('./core/api/whatsappQueueWatcher');
+const { startMyzapStatusWatcher, stopMyzapStatusWatcher, enviarStatusMyZap } = require('./core/api/myzapStatusWatcher');
 const { createSettings } = require('./core/windows/settings');
 const { openLogViewer } = require('./core/windows/logViewer');
 const { createTestPrint } = require('./core/windows/testPrint');
@@ -209,6 +210,7 @@ app.whenReady().then(() => {
 
   autoStartMyZap();
   scheduleQueueAutoStart();
+  startMyzapStatusWatcher();
 
   // Auto update: verifica e aplica (silencioso)
   handleUpdateCheck();
@@ -226,6 +228,7 @@ app.on('before-quit', () => {
     queueAutoStartTimer = null;
   }
   stopWhatsappQueueWatcher();
+  stopMyzapStatusWatcher();
 });
 
 /* =========================================================
@@ -274,6 +277,7 @@ ipcMain.on('myzap-settings-saved', async (_e, {
   store.set({
     myzap_diretorio,
     myzap_sessionKey,
+    myzap_sessionName: myzap_sessionKey,
     myzap_apiToken,
     myzap_envContent,
     clickexpress_apiUrl,
@@ -289,6 +293,11 @@ ipcMain.on('myzap-settings-saved', async (_e, {
   }
 
   scheduleQueueAutoStart();
+  enviarStatusMyZap().catch((err) => {
+    warn('Falha ao enviar status passivo do MyZap apos salvar configuracoes', {
+      metadata: { error: err }
+    });
+  });
 });
 
 process.on('uncaughtException', (err) => {
