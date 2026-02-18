@@ -27,6 +27,27 @@ function verificarPorta(porta) {
     });
 }
 
+function executarComando(comando, args, cwd) {
+    return new Promise((resolve, reject) => {
+        const child = spawn(comando, args, { cwd, shell: true });
+
+        let stderr = '';
+
+        child.stderr.on('data', (data) => {
+            stderr += data.toString();
+        });
+
+        child.on('error', reject);
+        child.on('close', (code) => {
+            if (code === 0) {
+                resolve();
+                return;
+            }
+            reject(new Error(stderr.trim() || `Comando "${comando}" finalizou com cÃ³digo ${code}.`));
+        });
+    });
+}
+
 /**
  * Inicia o MyZap via pnpm start
  */
@@ -44,6 +65,9 @@ async function iniciarMyZap(dirPath) {
         }
 
         console.log("Iniciando MyZap...");
+        console.log("Atualizando repositÃ³rio MyZap com git pull origin main...");
+
+        await executarComando('git', ['pull', 'origin', 'main'], dirPath);
 
         // Iniciamos o processo de forma independente (detached)
         // para que ele não morra se o processo principal sofrer refresh
