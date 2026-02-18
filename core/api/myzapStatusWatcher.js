@@ -79,8 +79,6 @@ async function enviarStatusMyZap() {
   });
 
   const data = await res.json().catch(() => ({}));
-  console.log('AAAAAAAAAAAAAAA')
-  console.log(data)
   
   if (!res.ok || data?.error) {
     throw new Error(data?.error || `HTTP ${res.status}`);
