@@ -11,12 +11,44 @@ async function listarImpressoras() {
     let nomes = [];
     
     if (isWindows) {
-      // Windows: usa WMIC
-      const cmd = "wmic printer get name";
-      const { stdout } = await execPromise(cmd);
-      nomes = stdout.split("\n").map(l => l.trim())
-        .filter(l => l && l !== "Name");
-        
+      // Windows: usa PowerShell (wmic foi removido no Windows 11 moderno)
+      let listarOk = false;
+
+      // Método 1: PowerShell Get-Printer
+      try {
+        const { stdout: psOutput } = await execPromise(
+          'powershell -NoProfile -Command "Get-Printer | Select-Object -ExpandProperty Name"'
+        );
+        const psNomes = psOutput.split("\n").map(l => l.trim()).filter(Boolean);
+        if (psNomes.length > 0) {
+          nomes = psNomes;
+          listarOk = true;
+          info('Impressoras encontradas via PowerShell Get-Printer', {
+            metadata: { total: nomes.length, impressoras: nomes }
+          });
+        }
+      } catch (e) {
+        warn('PowerShell Get-Printer falhou, tentando wmic', {
+          metadata: { erro: e.message }
+        });
+      }
+
+      // Método 2: wmic (fallback para Windows mais antigos)
+      if (!listarOk) {
+        try {
+          const { stdout: wmicOutput } = await execPromise("wmic printer get name");
+          nomes = wmicOutput.split("\n").map(l => l.trim())
+            .filter(l => l && l !== "Name");
+          if (nomes.length > 0) {
+            info('Impressoras encontradas via wmic', {
+              metadata: { total: nomes.length, impressoras: nomes }
+            });
+          }
+        } catch (e) {
+          warn('wmic também falhou', { metadata: { erro: e.message } });
+        }
+      }
+
     } else {
       // Linux: tenta múltiplos métodos para listar impressoras
       
