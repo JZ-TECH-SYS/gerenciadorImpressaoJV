@@ -13,6 +13,14 @@ async function verificarDiretorio(dirPath) {
       };
     }
 
+    const packageJsonPath = path.join(dirPath, 'package.json');
+    if (!fs.existsSync(packageJsonPath)) {
+      return {
+        status: "error",
+        message: "Diretório existe mas não contém uma instalação válida do MyZap!",
+      };
+    }
+
     return {
       status: "success",
       message: "MyZap se encontra no diretório configurado!"
