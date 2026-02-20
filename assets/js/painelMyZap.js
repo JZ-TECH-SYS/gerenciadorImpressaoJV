@@ -396,7 +396,8 @@ cfg_myzap.onsubmit = (e) => {
   const clickexpress_apiUrl = document.getElementById('input-clickexpress-apiurl').value.trim();
   const clickexpress_queueToken = document.getElementById('input-clickexpress-token').value.trim();
 
-  if (!myzap_diretorio.toLowerCase().includes('/myzap')) {
+  const pathSegments = myzap_diretorio.replace(/\\/g, '/').split('/');
+  if (!pathSegments.some(seg => seg.toLowerCase() === 'myzap')) {
     alert('O caminho do diretório deve se remeter ao diretório "myzap". Por exemplo, C:/JzTech/projects/myzap.');
     return;
   }
@@ -416,6 +417,39 @@ cfg_myzap.onsubmit = (e) => {
 
 function atualizaStatus() {
   window.location.reload();
+}
+
+async function iniciarMyZapServico() {
+  const myzap_diretorio = (await window.api.getStore('myzap_diretorio')) ?? '';
+  const btnStart = document.getElementById('btn-start');
+  const statusApi = document.getElementById('status-api');
+
+  if (!myzap_diretorio) {
+    alert('Por favor, salve as configurações antes de iniciar o MyZap.');
+    return;
+  }
+
+  btnStart.disabled = true;
+  statusApi.innerHTML = `
+    <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+    Iniciando...
+  `;
+  statusApi.className = 'badge bg-warning text-dark status-badge';
+
+  try {
+    const result = await window.api.iniciarMyZap(String(myzap_diretorio));
+
+    statusApi.textContent = result.message || 'Erro ao iniciar MyZap!';
+    statusApi.classList.remove('bg-warning', 'text-dark');
+    statusApi.classList.add(result.status === 'success' ? 'bg-success' : 'bg-danger');
+    btnStart.disabled = (result.status === 'success');
+  } catch (err) {
+    console.error('Erro ao iniciar MyZap:', err);
+    statusApi.textContent = 'Erro ao iniciar MyZap!';
+    statusApi.classList.remove('bg-warning', 'text-dark');
+    statusApi.classList.add('bg-danger');
+    btnStart.disabled = false;
+  }
 }
 
 function setInstalled(isInstalled) {
