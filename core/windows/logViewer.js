@@ -13,6 +13,7 @@ function openLogViewer() {
     width: 600,
     height: 500,
     resizable: true,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, '../../src/loads/preloadLog.js'),
       contextIsolation: true,

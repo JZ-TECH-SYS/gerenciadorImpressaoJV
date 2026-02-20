@@ -13,6 +13,7 @@ function createFilaMyZap() {
     width: 980,
     height: 820,
     resizable: true,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "../../src/loads/preload.js"),
       contextIsolation: true,
