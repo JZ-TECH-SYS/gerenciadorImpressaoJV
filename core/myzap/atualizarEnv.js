@@ -39,6 +39,10 @@ async function atualizarEnv(dirPath, envContent) {
         // 4. Inicia o MyZap com as novas configs
         const result = await iniciarMyZap(dirPath);
 
+        if (result.status === 'error') {
+            return result;
+        }
+
         return {
             status: 'success',
             message: 'Configurações aplicadas e serviço reiniciado!'
