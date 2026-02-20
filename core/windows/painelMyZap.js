@@ -13,6 +13,7 @@ function createPainelMyZap() {
     width: 800,
     height: 900,
     resizable: false,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "../../src/loads/preload.js"),
       contextIsolation: true,

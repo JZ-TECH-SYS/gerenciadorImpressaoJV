@@ -1,10 +1,14 @@
 /* ─── Main process ─────────────────────────────────────────────────── */
 const {
   app,
+  Menu,
   Notification,
   ipcMain
 } = require('electron');
 const { autoUpdater } = require('electron-updater');
+
+// Remove completamente o menu do Electron em todas as janelas
+Menu.setApplicationMenu(null);
 const path = require('path');
 const Store = require('electron-store');
 const { info, warn, error, abrirPastaLogs, criarArquivoAjuda } = require('./core/utils/logger');
@@ -96,7 +100,7 @@ async function autoStartMyZap() {
 
   if (!hasValidConfigMyZap()) {
     warn('MyZap: Configurações ausentes.');
-    createPainelMyZap();
+    toast('Configure o MyZap pelo ícone na bandeja');
     return;
   }
 
@@ -105,7 +109,7 @@ async function autoStartMyZap() {
 
     if (checkDir.status !== 'success') {
       warn('MyZap: Diretório vazio ou inválido.');
-      createPainelMyZap();
+      toast('MyZap: Diretório inválido. Configure pelo ícone na bandeja');
       return;
     }
 
@@ -116,12 +120,10 @@ async function autoStartMyZap() {
       toast('Serviço MyZap reiniciado automaticamente');
     } else {
       error('MyZap: Falha ao reiniciar automaticamente', { metadata: { result } });
-      createPainelMyZap();
     }
 
   } catch (err) {
     error('MyZap: Erro crítico no auto-start', { metadata: { error: err } });
-    createPainelMyZap();
   }
 }
 
@@ -191,12 +193,12 @@ app.whenReady().then(() => {
   // Cria menu inicial (printing ainda false)
   rebuildTrayMenu();
 
-  // Abre settings se ainda falta config
+  // Se falta config, apenas avisa (não abre janela)
   if (!hasValidConfig()) {
     warn('Configuração incompleta detectada', {
       metadata: { apiUrl: !!store.get('apiUrl'), printer: !!store.get('printer') }
     });
-    createSettings();
+    toast('Configure o sistema pelo ícone na bandeja');
   } else {
     // Config OK → inicia automaticamente
     printing = true;
