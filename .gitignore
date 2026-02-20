@@ -2,5 +2,6 @@ node_modules
 *.tgz
 .vscode
 dist
+myzap.zip
 nul
 tmpclaude-*
