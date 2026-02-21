@@ -24,9 +24,8 @@ const trayManager = require('./core/windows/tray');
 const { registerPrinterHandlers } = require('./core/ipc/printers');
 const { registerMyZapHandlers } = require('./core/ipc/myzap');
 const { attachAutoUpdaterHandlers, checkForUpdates } = require('./core/updater');
-
-const verificarDiretorio = require('./core/myzap/verificarDiretorio');
-const atualizarEnv = require('./core/myzap/atualizarEnv');
+const { ensureMyZapReadyAndStart, refreshRemoteConfigAndSyncIa } = require('./core/myzap/autoConfig');
+const { info: myzapInfo, warn: myzapWarn, error: myzapError } = require('./core/myzap/myzapLogger');
 
 /* ---------- store ---------- */
 const store = new Store({
@@ -35,7 +34,9 @@ const store = new Store({
 
 /* ---------- state ---------- */
 let printing = false;
+let myzapConfigRefreshTimer = null;
 let queueAutoStartTimer = null; // será alterado depois
+const MYZAP_CONFIG_REFRESH_MS = 30 * 1000;
 
 /* =========================================================
    1. Helpers
@@ -49,7 +50,34 @@ function hasValidConfig() {
 }
 
 function hasValidConfigMyZap() {
-  return !!store.get('myzap_diretorio') && !!store.get('myzap_sessionKey') && !!store.get('myzap_apiToken') && !!store.get('myzap_envContent');
+  return !!store.get('apiUrl') && !!store.get('apiToken') && !!store.get('idempresa');
+}
+
+function getModoIntegracaoMyZap() {
+  return String(store.get('myzap_modoIntegracao') || 'local').trim().toLowerCase() || 'local';
+}
+
+function isMyZapModoLocal() {
+  return getModoIntegracaoMyZap() === 'local';
+}
+
+function applyMyZapRuntimeByMode() {
+  if (isMyZapModoLocal()) {
+    scheduleQueueAutoStart();
+    startMyzapStatusWatcher();
+    return;
+  }
+
+  if (queueAutoStartTimer) {
+    clearInterval(queueAutoStartTimer);
+    queueAutoStartTimer = null;
+  }
+
+  stopWhatsappQueueWatcher();
+  stopMyzapStatusWatcher();
+  myzapInfo('MyZap em modo web/online. Rotinas locais foram desativadas.', {
+    metadata: { modo: getModoIntegracaoMyZap() }
+  });
 }
 
 function rebuildTrayMenu() {
@@ -94,41 +122,79 @@ function abrirAjuda() {
 }
 
 async function autoStartMyZap() {
-  const diretorio = store.get('myzap_diretorio');
-  const envContent = store.get('myzap_envContent');
-  console.log('Auto-start MyZap com diretório:', diretorio);
-
   if (!hasValidConfigMyZap()) {
-    warn('MyZap: Configurações ausentes.');
+    myzapWarn('MyZap: configuracoes base ausentes (apiUrl/apiToken/idempresa).');
     toast('Configure o MyZap pelo ícone na bandeja');
     return;
   }
 
   try {
-    const checkDir = await verificarDiretorio(diretorio);
+    myzapInfo('MyZap: iniciando fluxo automatico de preparacao/start...');
+    const result = await ensureMyZapReadyAndStart({ forceRemote: true });
 
-    if (checkDir.status !== 'success') {
-      warn('MyZap: Diretório vazio ou inválido.');
-      toast('MyZap: Diretório inválido. Configure pelo ícone na bandeja');
-      return;
-    }
-
-    info('MyZap: Reiniciando serviço automático...');
-    const result = await atualizarEnv(diretorio, envContent);
-
-    if (result.status === 'success') {
-      toast('Serviço MyZap reiniciado automaticamente');
+    if (result.status === 'success' && result?.skippedLocalStart) {
+      toast('MyZap em modo web/online. Execucao local desativada.');
+    } else if (result.status === 'success') {
+      toast('Serviço MyZap iniciado automaticamente');
     } else {
-      error('MyZap: Falha ao reiniciar automaticamente', { metadata: { result } });
+      myzapError('MyZap: falha no fluxo automatico de start', { metadata: { result } });
     }
-
+    applyMyZapRuntimeByMode();
   } catch (err) {
-    error('MyZap: Erro crítico no auto-start', { metadata: { error: err } });
+    myzapError('MyZap: erro critico no auto-start', { metadata: { error: err } });
   }
 }
 
 
+async function refreshMyZapConfigPeriodicamente() {
+  if (!hasValidConfigMyZap()) {
+    return;
+  }
+
+  try {
+    const modoAntes = getModoIntegracaoMyZap();
+    const result = await refreshRemoteConfigAndSyncIa();
+    if (result?.status !== 'success') {
+      myzapWarn('MyZap: falha ao atualizar config remota periodica', {
+        metadata: { result }
+      });
+    }
+
+    const modoDepois = getModoIntegracaoMyZap();
+    if (modoAntes !== 'local' && modoDepois === 'local') {
+      myzapInfo('MyZap: modo alterado para local/fila. Iniciando ambiente local automaticamente.');
+      const startResult = await ensureMyZapReadyAndStart({ forceRemote: false });
+      if (startResult?.status !== 'success') {
+        myzapWarn('MyZap: falha ao iniciar ambiente local apos troca de modo', {
+          metadata: { startResult }
+        });
+      }
+    }
+
+    applyMyZapRuntimeByMode();
+  } catch (err) {
+    myzapWarn('MyZap: erro na atualizacao remota periodica', {
+      metadata: { error: err }
+    });
+  }
+}
+
+function scheduleMyZapConfigRefresh() {
+  if (myzapConfigRefreshTimer) {
+    return;
+  }
+
+  myzapConfigRefreshTimer = setInterval(() => {
+    refreshMyZapConfigPeriodicamente();
+  }, MYZAP_CONFIG_REFRESH_MS);
+}
+
+
 async function tryStartQueueWatcherAuto() {
+  if (!isMyZapModoLocal()) {
+    return true;
+  }
+
   try {
     const result = await startWhatsappQueueWatcher();
     if (result?.status === 'success') {
@@ -211,8 +277,7 @@ app.whenReady().then(() => {
   }
 
   autoStartMyZap();
-  scheduleQueueAutoStart();
-  startMyzapStatusWatcher();
+  scheduleMyZapConfigRefresh();
 
   // Auto update: verifica e aplica (silencioso)
   handleUpdateCheck();
@@ -225,6 +290,10 @@ app.whenReady().then(() => {
 ========================================================= */
 app.on('window-all-closed', e => e.preventDefault());
 app.on('before-quit', () => {
+  if (myzapConfigRefreshTimer) {
+    clearInterval(myzapConfigRefreshTimer);
+    myzapConfigRefreshTimer = null;
+  }
   if (queueAutoStartTimer) {
     clearInterval(queueAutoStartTimer);
     queueAutoStartTimer = null;
@@ -266,7 +335,7 @@ ipcMain.on('myzap-settings-saved', async (_e, {
   clickexpress_apiUrl,
   clickexpress_queueToken
 }) => {
-  info('Configurações salvas pelo usuário', {
+  myzapInfo('Configuracoes do painel MyZap salvas pelo usuario', {
     metadata: {
       myzap_diretorio,
       myzap_sessionKey,
@@ -286,20 +355,19 @@ ipcMain.on('myzap-settings-saved', async (_e, {
     clickexpress_queueToken
   });
 
-  if (myzap_diretorio) {
-    const result = await atualizarEnv(myzap_diretorio, myzap_envContent);
-
-    if (result.status === 'success') {
-      toast('MyZap: Configurações atualizadas!');
-    }
+  const result = await ensureMyZapReadyAndStart({ forceRemote: true });
+  if (result.status === 'success') {
+    toast('MyZap: configuracoes atualizadas automaticamente!');
   }
 
-  scheduleQueueAutoStart();
-  enviarStatusMyZap().catch((err) => {
-    warn('Falha ao enviar status passivo do MyZap apos salvar configuracoes', {
-      metadata: { error: err }
+  applyMyZapRuntimeByMode();
+  if (isMyZapModoLocal()) {
+    enviarStatusMyZap().catch((err) => {
+      myzapWarn('Falha ao enviar status passivo do MyZap apos salvar configuracoes', {
+        metadata: { error: err }
+      });
     });
-  });
+  }
 });
 
 process.on('uncaughtException', (err) => {

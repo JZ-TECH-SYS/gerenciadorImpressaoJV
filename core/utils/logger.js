@@ -8,7 +8,8 @@ const LOG_DIR = path.join(os.tmpdir(), 'jv-printer', 'logs');
 const WRITE_PLAIN_LOG = false; // padroniza saída em JSON Lines
 const LOG_CHANNELS = {
   system: 'log-sistema',
-  windows: 'log-win'
+  windows: 'log-win',
+  myzap: 'log-myzap'
 };
 
 const LEVEL_LABEL = {

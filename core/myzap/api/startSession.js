@@ -1,6 +1,6 @@
 const Store = require("electron-store");
 const store = new Store();
-const { warn, error, debug } = require('../../utils/logger');
+const { warn, error, debug } = require('../myzapLogger');
 
 async function startSession() {
     const token = store.get('myzap_apiToken');
@@ -8,21 +8,21 @@ async function startSession() {
     const session = store.get("myzap_sessionKey");
 
     if (!token) {
-        warn("Token não encontrado", {
+        warn("Token nÃ£o encontrado", {
             metadata: { area: 'startSession', missing: 'token' }
         });
         return null;
     }
 
     if (!session) {
-        warn("Session não encontrada", {
+        warn("Session nÃ£o encontrada", {
             metadata: { area: 'startSession', missing: 'session' }
         });
         return null;
     }
 
     try {
-        debug("Iniciando sessão MyZap", {
+        debug("Iniciando sessÃ£o MyZap", {
             metadata: { area: 'startSession', session }
         });
 
@@ -40,8 +40,7 @@ async function startSession() {
         return data;
 
     } catch (e) {
-        console.log('ERRRRO', e)
-        error("Erro ao iniciar sessão MyZap", {
+        error("Erro ao iniciar sessÃ£o MyZap", {
             metadata: { area: 'startSession', error: e }
         });
         return null;

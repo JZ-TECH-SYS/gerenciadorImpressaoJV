@@ -1,5 +1,5 @@
 const Store = require('electron-store');
-const { info, warn, error } = require('../utils/logger');
+const { info, warn, error, debug } = require('../myzap/myzapLogger');
 
 const store = new Store();
 const MYZAP_API_URL = 'http://localhost:5555/';
@@ -20,8 +20,8 @@ function normalizeBaseUrl(url) {
 
 async function validarDisponibilidadeMyZap(sessionKey, sessionToken) {
   try {
-    console.log('[FilaMyZap] Validando disponibilidade do MyZap (/verifyRealStatus)...', {
-      sessionKey
+    debug('[FilaMyZap] Validando disponibilidade do MyZap (/verifyRealStatus)...', {
+      metadata: { sessionKey }
     });
 
     const res = await fetch(`${MYZAP_API_URL}verifyRealStatus`, {
@@ -35,10 +35,12 @@ async function validarDisponibilidadeMyZap(sessionKey, sessionToken) {
     });
 
     const data = await res.json().catch(() => ({}));
-    console.log('[FilaMyZap] Retorno verifyRealStatus:', { status: res.status, data });
+    debug('[FilaMyZap] Retorno verifyRealStatus', { metadata: { status: res.status, data } });
     return res.ok;
   } catch (err) {
-    console.log('[FilaMyZap] Erro ao validar disponibilidade do MyZap:', err?.message || err);
+    warn('[FilaMyZap] Erro ao validar disponibilidade do MyZap', {
+      metadata: { error: err?.message || err }
+    });
     return false;
   }
 }
@@ -49,17 +51,19 @@ async function buscarPendentes(apiBaseUrl, token, sessionKey, sessionToken) {
     sessionToken: sessionToken || ''
   }).toString();
 
-  console.log('[FilaMyZap] Buscando pendentes...', { apiBaseUrl, sessionKey, query });
+  debug('[FilaMyZap] Buscando pendentes', { metadata: { apiBaseUrl, sessionKey, query } });
   const res = await fetch(`${apiBaseUrl}parametrizacao-myzap/pendentes?${query}`, {
     method: 'GET',
     headers: { Authorization: `Bearer ${token}` }
   });
 
   const data = await res.json().catch(() => ({}));
-  console.log('[FilaMyZap] Retorno /parametrizacao-myzap/pendentes:', {
-    status: res.status,
-    total: data?.result?.total,
-    error: data?.error
+  debug('[FilaMyZap] Retorno /parametrizacao-myzap/pendentes', {
+    metadata: {
+      status: res.status,
+      total: data?.result?.total,
+      error: data?.error
+    }
   });
   if (!res.ok || data?.error) {
     throw new Error(data?.error || 'Falha ao consultar pendentes');
@@ -69,7 +73,7 @@ async function buscarPendentes(apiBaseUrl, token, sessionKey, sessionToken) {
 }
 
 async function atualizarStatusFila(apiBaseUrl, token, payload) {
-  console.log('[FilaMyZap] Atualizando status da fila...', payload);
+  debug('[FilaMyZap] Atualizando status da fila', { metadata: payload });
   const res = await fetch(`${apiBaseUrl}parametrizacao-myzap/fila/status`, {
     method: 'POST',
     headers: {
@@ -80,7 +84,9 @@ async function atualizarStatusFila(apiBaseUrl, token, payload) {
   });
 
   const data = await res.json().catch(() => ({}));
-  console.log('[FilaMyZap] Retorno /parametrizacao-myzap/fila/status:', { status: res.status, data });
+  debug('[FilaMyZap] Retorno /parametrizacao-myzap/fila/status', {
+    metadata: { status: res.status, data }
+  });
   return res.ok && !data?.error;
 }
 
@@ -111,10 +117,12 @@ async function enviarParaMyZap(mensagem, fallbackSessionKey, fallbackApiToken) {
     return { ok: false, erro: 'SessionKey ou APIToken do MyZap ausente' };
   }
 
-  console.log('[FilaMyZap] Enviando para MyZap...', {
-    idfila: mensagem?.idfila,
-    endpoint: endpointNormalizado,
-    sessionKey
+  debug('[FilaMyZap] Enviando para MyZap', {
+    metadata: {
+      idfila: mensagem?.idfila,
+      endpoint: endpointNormalizado,
+      sessionKey
+    }
   });
   const res = await fetch(`${MYZAP_API_URL}${endpointNormalizado}`, {
     method: 'POST',
@@ -127,10 +135,12 @@ async function enviarParaMyZap(mensagem, fallbackSessionKey, fallbackApiToken) {
   });
 
   const body = await res.json().catch(() => ({}));
-  console.log('[FilaMyZap] Retorno MyZap:', {
-    idfila: mensagem?.idfila,
-    status: res.status,
-    body
+  debug('[FilaMyZap] Retorno MyZap', {
+    metadata: {
+      idfila: mensagem?.idfila,
+      status: res.status,
+      body
+    }
   });
   if (!res.ok || body?.error) {
     return { ok: false, erro: body?.error || `HTTP ${res.status}` };
@@ -260,7 +270,9 @@ async function startWhatsappQueueWatcher() {
 
   const config = await obterCredenciaisAtivas();
   if (!config.clickApiUrl || !config.clickToken || !config.sessionKey || !config.sessionToken) {
-    console.log('[FilaMyZap] Configuracao incompleta para iniciar watcher.', config);
+    warn('[FilaMyZap] Configuracao incompleta para iniciar watcher', {
+      metadata: config
+    });
     return { status: 'error', message: 'Configuracao do ClickExpress/MyZap incompleta.' };
   }
 
@@ -280,7 +292,7 @@ async function startWhatsappQueueWatcher() {
   });
 
   timer = setInterval(() => {
-    console.log('[FilaMyZap] Tick de processamento da fila.');
+    debug('[FilaMyZap] Tick de processamento da fila');
     processarFilaUmaRodada().catch((err) => {
       error('Erro inesperado no loop da fila MyZap', {
         metadata: { area: 'whatsappQueueWatcher', error: err }

@@ -60,7 +60,23 @@
                             <p class="mt-2">Carregando...</p>
                         </div>
 
-                        <div class="myzap-grid">
+                        <div id="myzap-online-only" class="alert alert-warning d-none mb-3"></div>
+
+                        <div id="myzap-progress-box" class="alert alert-info d-none mb-3" role="status" aria-live="polite">
+                            <div class="d-flex justify-content-between align-items-center gap-2">
+                                <strong id="myzap-progress-title">Processo local do MyZap</strong>
+                                <span id="myzap-progress-phase" class="badge bg-primary">aguardando</span>
+                            </div>
+                            <div id="myzap-progress-message" class="mt-2">Aguardando execucao...</div>
+                            <div class="progress mt-2 myzap-progress-track">
+                                <div id="myzap-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%">
+                                    0%
+                                </div>
+                            </div>
+                            <div id="myzap-progress-updated" class="text-muted-small mt-2">Sem atualizacao recente.</div>
+                        </div>
+
+                        <div id="myzap-local-content" class="myzap-grid">
 
                             <!-- FORMULÁRIO -->
                             <div class="myzap-form">
@@ -84,7 +100,7 @@
 
                                 </div>
 
-                                <div class="alert alert-info myzap-info mt-4">
+                                <div id="myzap-modo-info" class="alert alert-info myzap-info mt-4">
                                     Aguardando informações para gerar o QRCode ou iniciar a sessão.
                                 </div>
 
@@ -195,6 +211,8 @@
                             </div>
 
                         </div>
+
+                        <div id="myzap-runtime-info" class="alert alert-secondary mt-3 mb-0"></div>
 
                         <div class="mt-4 d-flex gap-2">
 

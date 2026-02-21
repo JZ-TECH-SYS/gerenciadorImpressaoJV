@@ -1,6 +1,6 @@
 const Store = require('electron-store');
 const verifyRealStatus = require('../myzap/api/verifyRealStatus');
-const { info, warn, error } = require('../utils/logger');
+const { info, warn, error } = require('../myzap/myzapLogger');
 
 const store = new Store();
 const LOOP_INTERVAL_MS = 10000;

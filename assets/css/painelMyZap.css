@@ -172,6 +172,17 @@ body {
     font-size: 0.85rem;
 }
 
+.myzap-progress-track {
+    background-color: #0f172a;
+    border: 1px solid #334155;
+    height: 1.2rem;
+}
+
+#myzap-progress-bar {
+    font-weight: 700;
+    font-size: 0.72rem;
+}
+
 .ia-config-box {
     background-color: #020617;
     border: 1px solid #334155;

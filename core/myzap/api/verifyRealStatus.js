@@ -1,6 +1,6 @@
 const Store = require("electron-store");
 const store = new Store();
-const { warn, error, debug } = require('../../utils/logger');
+const { warn, error, debug } = require('../myzapLogger');
 
 async function verifyRealStatus() {
     const token = store.get('myzap_apiToken');

@@ -1,37 +1,39 @@
-const { contextBridge } = require('electron');
 const fs = require('fs');
 const path = require('path');
-const { error } = require("../utils/logger");
+const { error, debug } = require('./myzapLogger');
 
 async function verificarDiretorio(dirPath) {
   try {
-    console.log('Verificando diretório:', dirPath);
+    debug('Verificando diretorio do MyZap', {
+      metadata: { area: 'verificarDiretorio', dirPath }
+    });
+
     if (!dirPath || !fs.existsSync(dirPath)) {
       return {
-        status: "error",
-        message: "MyZap não se encontra no diretório configurado!",
+        status: 'error',
+        message: 'MyZap nao se encontra no diretorio configurado!'
       };
     }
 
     const packageJsonPath = path.join(dirPath, 'package.json');
     if (!fs.existsSync(packageJsonPath)) {
       return {
-        status: "error",
-        message: "Diretório existe mas não contém uma instalação válida do MyZap!",
+        status: 'error',
+        message: 'Diretorio existe mas nao contem uma instalacao valida do MyZap!'
       };
     }
 
     return {
-      status: "success",
-      message: "MyZap se encontra no diretório configurado!"
+      status: 'success',
+      message: 'MyZap se encontra no diretorio configurado!'
     };
   } catch (err) {
-    error('Erro ao verificar diretório', {
-      metadata: { error: err, area: 'verificarDiretorio' }
+    error('Erro ao verificar diretorio do MyZap', {
+      metadata: { error: err, area: 'verificarDiretorio', dirPath }
     });
     return {
-      status: "error",
-      message: err.message || err,
+      status: 'error',
+      message: err.message || err
     };
   }
 }

@@ -1,4 +1,4 @@
-const { warn } = require('../utils/logger');
+const { warn, info } = require('../myzap/myzapLogger');
 const clonarRepositorio = require('../myzap/clonarRepositorio');
 const verificarDiretorio = require('../myzap/verificarDiretorio');
 const getConnectionStatus = require('../myzap/api/getConnectionStatus');
@@ -8,6 +8,10 @@ const verifyRealStatus = require('../myzap/api/verifyRealStatus');
 const updateIaConfig = require('../myzap/api/updateIaConfig');
 const iniciarMyZap = require('../myzap/iniciarMyZap');
 const {
+    prepareAutoConfig,
+    ensureMyZapReadyAndStart
+} = require('../myzap/autoConfig');
+const {
     getUltimosPendentesMyZap,
     startWhatsappQueueWatcher,
     stopWhatsappQueueWatcher,
@@ -15,6 +19,10 @@ const {
 } = require('../api/whatsappQueueWatcher');
 
 function registerMyZapHandlers(ipcMain) {
+    info('IPC MyZap handlers registrados', {
+        metadata: { area: 'ipcMyzap' }
+    });
+
     ipcMain.handle('myzap:checkDirectoryHasFiles', async (event, dirPath) => {
         try {
             const result = await verificarDiretorio(dirPath);
@@ -51,6 +59,40 @@ function registerMyZapHandlers(ipcMain) {
             return result;
         } catch (error) {
             warn('Falha ao iniciar MyZap via IPC', {
+                metadata: { error }
+            });
+            return {
+                status: 'error',
+                message: error.message || String(error)
+            };
+        }
+    });
+
+    ipcMain.handle('myzap:prepareAutoConfig', async (_event, forceRemote = false) => {
+        try {
+            info('IPC myzap:prepareAutoConfig recebido', {
+                metadata: { area: 'ipcMyzap', forceRemote }
+            });
+            return await prepareAutoConfig({ forceRemote });
+        } catch (error) {
+            warn('Falha ao preparar configuracao automatica do MyZap via IPC', {
+                metadata: { error }
+            });
+            return {
+                status: 'error',
+                message: error.message || String(error)
+            };
+        }
+    });
+
+    ipcMain.handle('myzap:ensureStarted', async (_event, forceRemote = false) => {
+        try {
+            info('IPC myzap:ensureStarted recebido', {
+                metadata: { area: 'ipcMyzap', forceRemote }
+            });
+            return await ensureMyZapReadyAndStart({ forceRemote });
+        } catch (error) {
+            warn('Falha ao iniciar MyZap automaticamente via IPC', {
                 metadata: { error }
             });
             return {
@@ -137,6 +179,9 @@ function registerMyZapHandlers(ipcMain) {
 
     ipcMain.handle('myzap:startQueueWatcher', async () => {
         try {
+            info('IPC myzap:startQueueWatcher recebido', {
+                metadata: { area: 'ipcMyzap' }
+            });
             return await startWhatsappQueueWatcher();
         } catch (error) {
             warn('Falha ao iniciar watcher de fila MyZap via IPC', {
@@ -151,6 +196,9 @@ function registerMyZapHandlers(ipcMain) {
 
     ipcMain.handle('myzap:stopQueueWatcher', async () => {
         try {
+            info('IPC myzap:stopQueueWatcher recebido', {
+                metadata: { area: 'ipcMyzap' }
+            });
             return stopWhatsappQueueWatcher();
         } catch (error) {
             warn('Falha ao parar watcher de fila MyZap via IPC', {
