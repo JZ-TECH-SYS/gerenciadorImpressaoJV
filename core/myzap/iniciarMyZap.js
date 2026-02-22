@@ -147,11 +147,15 @@ async function iniciarMyZap(dirPath, options = {}) {
                 }
             });
         });
+        let stderrOutput = '';
+
         child.stderr.on('data', (data) => {
+            const text = String(data).trim();
+            stderrOutput += (stderrOutput ? '\n' : '') + text;
             info('MyZap runtime stderr', {
                 metadata: {
                     area: 'iniciarMyZap',
-                    output: String(data).trim()
+                    output: text
                 }
             });
         });
@@ -164,7 +168,16 @@ async function iniciarMyZap(dirPath, options = {}) {
 
         child.on('exit', (code, signal) => {
             if (typeof code === 'number' && code !== 0) {
-                childError = new Error(`MyZap finalizou com codigo ${code} (signal: ${signal || 'nenhum'})`);
+                // Extrair primeira linha util do stderr (sem stack trace)
+                const firstLine = stderrOutput
+                    .split('\n')
+                    .map(l => l.trim())
+                    .find(l => l && !l.startsWith('at ') && !l.startsWith('node:'));
+                const detail = firstLine || stderrOutput.slice(0, 200);
+                const msg = detail
+                    ? `MyZap finalizou com codigo ${code}: ${detail}`
+                    : `MyZap finalizou com codigo ${code} (signal: ${signal || 'nenhum'})`;
+                childError = new Error(msg);
             }
             // Limpar referencia do child ao sair
             if (myzapChildProcess === child) {

@@ -548,7 +548,7 @@ async function prepareAutoConfig(options = {}) {
 
     const sessionKey = (remote?.data?.sessionKey || currentSessionKey || '').trim();
     const sessionName = (remote?.data?.sessionName || currentSessionName || sessionKey || '').trim();
-    const myzapApiToken = (remote?.data?.myzapApiToken || currentMyzapApiToken || '').trim();
+    let myzapApiToken = (remote?.data?.myzapApiToken || currentMyzapApiToken || '').trim();
     const clickApiUrl = normalizeBaseUrl((remote?.data?.clickApiUrl || base.apiUrl || '').trim());
     const clickQueueToken = (remote?.data?.clickQueueToken || base.apiToken || '').trim();
     const promptId = (remote?.data?.promptId || currentPromptId || '').trim();
@@ -568,6 +568,20 @@ async function prepareAutoConfig(options = {}) {
         || getBundledEnvContent()
         || (sessionKey && myzapApiToken ? buildDefaultEnv({ sessionKey, myzapApiToken }) : '')
     ).trim();
+
+    // Sincronizar myzap_apiToken com o TOKEN real do .env
+    // O TOKEN no .env e o que o MyZap local valida nas chamadas HTTP.
+    // A API remota pode devolver myzapApiToken = sessionKey (errado).
+    const envTokenMatch = envContent.match(/^TOKEN="?([^"\n\r]+)"?/m);
+    if (envTokenMatch && envTokenMatch[1].trim()) {
+        const envToken = envTokenMatch[1].trim();
+        if (envToken !== myzapApiToken) {
+            info('autoConfig: myzap_apiToken corrigido para igualar TOKEN do .env', {
+                metadata: { area: 'autoConfig', antigo: myzapApiToken.slice(0, 8) + '...', novo: envToken.slice(0, 8) + '...' }
+            });
+            myzapApiToken = envToken;
+        }
+    }
 
     if (!sessionKey || !myzapApiToken) {
         warn('Nao foi possivel obter credenciais automaticas do MyZap', {

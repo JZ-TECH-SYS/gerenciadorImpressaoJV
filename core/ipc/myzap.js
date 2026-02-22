@@ -324,8 +324,32 @@ function registerMyZapHandlers(ipcMain) {
             if (fs.existsSync(templatePath)) {
                 targets.push(templatePath);
             }
+
+            // Sempre atualiza myzap_envContent no store para que futuras instalacoes carreguem os segredos
+            const storedEnv = String(envStore.get('myzap_envContent') || '').trim();
+            const templateEnv = fs.existsSync(templatePath) ? fs.readFileSync(templatePath, 'utf8') : '';
+            let baseEnv = storedEnv || templateEnv;
+            if (baseEnv) {
+                baseEnv = baseEnv.replace(/^TOKEN=.*$/m, `TOKEN="${TOKEN}"`);
+                baseEnv = baseEnv.replace(/^OPENAI_API_KEY=.*$/m, `OPENAI_API_KEY="${OPENAI_API_KEY}"`);
+                baseEnv = baseEnv.replace(/^EMAIL_TOKEN=.*$/m, `EMAIL_TOKEN="${EMAIL_TOKEN}"`);
+                envStore.set('myzap_envContent', baseEnv);
+            }
+
+            // Sincronizar myzap_apiToken com o TOKEN do .env para que as chamadas HTTP a API local usem o mesmo valor
+            if (TOKEN) {
+                envStore.set('myzap_apiToken', TOKEN);
+                info('myzap_apiToken sincronizado com TOKEN do .env', {
+                    metadata: { area: 'ipcMyzap' }
+                });
+            }
+
             if (targets.length === 0) {
-                return { status: 'error', message: 'Nenhum arquivo .env encontrado para salvar.' };
+                // Nenhum .env instalado ainda — apenas o store foi atualizado
+                info('Segredos salvos no store (MyZap ainda nao instalado)', {
+                    metadata: { area: 'ipcMyzap' }
+                });
+                return { status: 'success', message: 'Segredos salvos. Instale o MyZap para aplicar.' };
             }
             for (const filePath of targets) {
                 let content = fs.readFileSync(filePath, 'utf8');
@@ -337,7 +361,7 @@ function registerMyZapHandlers(ipcMain) {
             info('Segredos .env salvos com sucesso', {
                 metadata: { area: 'ipcMyzap', targets: targets.length }
             });
-            return { status: 'success', message: `Segredos salvos em ${targets.length} arquivo(s).` };
+            return { status: 'success', message: `Segredos salvos com sucesso.` };
         } catch (error) {
             warn('Falha ao salvar segredos .env via IPC', { metadata: { error } });
             return { status: 'error', message: error.message || String(error) };
@@ -354,6 +378,12 @@ function registerMyZapHandlers(ipcMain) {
                 envContent = fs.readFileSync(localEnv, 'utf8');
             } else if (fs.existsSync(templateEnv)) {
                 envContent = fs.readFileSync(templateEnv, 'utf8');
+            }
+            // Fallback ao store: apos reset os arquivos sao apagados,
+            // mas myzap_envContent ainda guarda os segredos configurados
+            if (!envContent || !envContent.includes('TOKEN=')) {
+                const storeEnv = String(envStore.get('myzap_envContent') || '');
+                if (storeEnv) envContent = storeEnv;
             }
             return parseEnvSecrets(envContent);
         } catch (error) {

@@ -19,6 +19,10 @@ const PROGRESS_POLL_INTERVAL_MS = 1000;
 const STALE_PROGRESS_HIDE_MS = 15 * 60 * 1000;
 
 let myzapProgressPollTimer = null;
+let qrPollingTimer = null;
+let qrPollingAttempts = 0;
+const QR_POLL_INTERVAL_MS = 3000;
+const QR_POLL_MAX_ATTEMPTS = 40; // ~120s total
 
 function clampPercent(value) {
   const numeric = Number(value);
@@ -94,6 +98,10 @@ function getProgressPhaseLabel(phase) {
 function shouldHideProgress(progress) {
   if (!progress || typeof progress !== 'object') return true;
   if (!progress.active && String(progress.phase || '').toLowerCase() === 'mode_web') {
+    return true;
+  }
+  // Esconder quando ja concluido com sucesso e processo nao esta mais ativo
+  if (!progress.active && String(progress.state || '').toLowerCase() === 'success') {
     return true;
   }
   if (!progress.active) {
@@ -373,11 +381,26 @@ function startConfigAutoRefresh() {
 
 (async () => {
   try {
+    // Se usuario removeu tudo anteriormente, manter estado entre reaberturas do app
+    const userRemoved = await window.api.getStore('myzap_userRemovedLocal');
+    if (userRemoved === true) {
+      setPanelVisible(false);
+      setResetFeedback({
+        show: true,
+        type: 'success',
+        icon: '',
+        title: 'MyZap foi removido',
+        message: 'O MyZap local foi removido. Clique em "Instalar Novamente" para reinstalar com TOKEN gerado automaticamente.',
+        details: null,
+        showInstallAgain: true
+      });
+      return;
+    }
     await loadConfigs();
     startMyZapProgressPolling();
     startConfigAutoRefresh();
   } catch (e) {
-    alert('Erro ao carregar configuraÃ§Ãµes: ' + (e?.message || e));
+    alert('Erro ao carregar configuracoes: ' + (e?.message || e));
   }
 })();
 
@@ -393,8 +416,6 @@ async function loadConfigs() {
     const configTabItem = configTab?.closest('li');
     const configPane = document.getElementById('config');
     const installGroup = document.getElementById('install-group');
-    if (configTabItem) configTabItem.classList.add('d-none');
-    if (configPane) configPane.classList.add('d-none');
     if (installGroup) installGroup.classList.add('d-none');
     const myzap_diretorio = (await window.api.getStore('myzap_diretorio')) ?? '';
     const myzap_sessionKey = (await window.api.getStore('myzap_sessionKey')) ?? '';
@@ -516,6 +537,8 @@ async function loadConfigs() {
       if (document.getElementById('input-env-token')) document.getElementById('input-env-token').value = envSecrets.TOKEN || '';
       if (document.getElementById('input-env-openai')) document.getElementById('input-env-openai').value = envSecrets.OPENAI_API_KEY || '';
       if (document.getElementById('input-env-emailtoken')) document.getElementById('input-env-emailtoken').value = envSecrets.EMAIL_TOKEN || '';
+      // Mostrar hint + botão "Salvar e Instalar" se TOKEN vazio
+      updateConfigInstallHint(envSecrets.TOKEN || '');
     } catch (envErr) {
       console.warn('Falha ao carregar segredos do .env:', envErr?.message || envErr);
     }
@@ -527,6 +550,7 @@ async function loadConfigs() {
 }
 
 async function checkRealConnection() {
+  console.log('[MyZap UI] checkRealConnection: iniciando verificacao de status real');
   const qrBox = document.getElementById('qrcode-box');
   const statusIndicator = document.querySelector('.status-indicator');
 
@@ -536,7 +560,7 @@ async function checkRealConnection() {
     const response = await window.api.verifyRealStatus();
 
     if (!response.dbStatus && !response.status) {
-      throw new Error('Resposta invÃ¡lida da API');
+      throw new Error('Resposta invalida da API');
     }
 
     const {
@@ -549,11 +573,11 @@ async function checkRealConnection() {
 
     if (status == 'NOT FOUND') {
       statusIndicator.className = 'status-indicator waiting';
-      statusIndicator.textContent = 'SessÃ£o nÃ£o iniciada!';
+      statusIndicator.textContent = 'Sessao nao iniciada!';
 
       qrBox.innerHTML = `
         <span class="text-muted-small">
-          Nenhuma instÃ¢ncia de sessÃ£o foi criada!
+          Nenhuma instancia de sessao foi criada!
         </span>
       `;
 
@@ -567,7 +591,7 @@ async function checkRealConnection() {
 
     if (isConnected) {
       statusIndicator.className = 'status-indicator connected';
-      statusIndicator.textContent = 'âœ… Conectado';
+      statusIndicator.textContent = 'Conectado';
 
       qrBox.innerHTML = `
         <span class="text-muted-small">
@@ -594,7 +618,7 @@ async function checkRealConnection() {
 
     qrBox.innerHTML = `
       <span class="text-muted-small">
-        ${message || 'QR Code nÃ£o disponÃ­vel'}
+        ${message || 'QR Code nao disponivel'}
       </span>
     `;
 
@@ -621,6 +645,7 @@ async function checkRealConnection() {
 }
 
 async function checkConnection() {
+  console.log('[MyZap UI] checkConnection: verificando modo e status');
   const qrBox = document.getElementById('qrcode-box');
   const statusIndicator = document.querySelector('.status-indicator');
 
@@ -650,7 +675,7 @@ async function checkConnection() {
     const response = await window.api.getConnectionStatus();
 
     if (!response || response.result !== 200) {
-      throw new Error('Resposta invÃ¡lida da API');
+      throw new Error('Resposta invalida da API');
     }
 
     const { status, state, qrCode } = response;
@@ -671,7 +696,7 @@ async function checkConnection() {
     }
 
   } catch (err) {
-    console.error('Erro ao verificar conexÃ£o:', err);
+    console.error('Erro ao verificar conexao:', err);
 
     statusIndicator.className = 'status-indicator disconnected';
     statusIndicator.textContent = 'âš  Erro de conexÃ£o';
@@ -684,7 +709,77 @@ async function checkConnection() {
   }
 }
 
+function stopQrPolling() {
+  if (qrPollingTimer) {
+    clearInterval(qrPollingTimer);
+    qrPollingTimer = null;
+  }
+  qrPollingAttempts = 0;
+}
+
+async function tickQrPolling() {
+  console.log('[MyZap UI] tickQrPolling: tentativa', qrPollingAttempts + 1, '/ ' + QR_POLL_MAX_ATTEMPTS);
+  const qrBox = document.getElementById('qrcode-box');
+  const statusIndicator = document.querySelector('.status-indicator');
+  if (!qrBox || !statusIndicator) { stopQrPolling(); return; }
+
+  try {
+    // Se ja conectou, parar tudo
+    const snap = await window.api.verifyRealStatus();
+    console.log('[MyZap UI] verifyRealStatus snap:', JSON.stringify(snap));
+    if (snap?.realStatus === 'CONNECTED') {
+      stopQrPolling();
+      statusIndicator.className = 'status-indicator connected';
+      statusIndicator.textContent = '\u2705 Conectado';
+      qrBox.innerHTML = '<span class="text-muted-small">WhatsApp conectado com sucesso</span>';
+      setButtonsState({ canStart: false, canDelete: true });
+      setIaConfigVisibility(true);
+      return;
+    }
+
+    // Se QR ja esta exibido, apenas aguardar o scan (continua polling para detectar conexao)
+    if (qrBox.querySelector('img')) return;
+
+    // Buscar QR code diretamente — sem depender do estado QRCODE no verifyRealStatus
+    const connStatus = await window.api.getConnectionStatus();
+    console.log('[MyZap UI] getConnectionStatus resposta:', JSON.stringify(connStatus));
+    if (!connStatus || Array.isArray(connStatus)) return;
+
+    const qrCode = connStatus.qrCode || connStatus.qr_code || connStatus.base64Qrimg || '';
+    if (qrCode) {
+      statusIndicator.className = 'status-indicator waiting';
+      statusIndicator.textContent = '\u23F3 Aguardando leitura do QR Code';
+      qrBox.innerHTML = `
+        <img src="${qrCode}" alt="QR Code WhatsApp"/>
+        <div class="qrcode-hint">Escaneie o QR Code com o WhatsApp</div>
+      `;
+      setButtonsState({ canStart: false, canDelete: true });
+    }
+  } catch (err) {
+    // silencioso — nao interromper o polling por erros transientes
+  }
+}
+
+function startQrPolling() {
+  stopQrPolling();
+  // Primeira tentativa apos 2s (MyZap precisa de tempo para gerar o QR)
+  setTimeout(tickQrPolling, 2000);
+  qrPollingTimer = setInterval(async () => {
+    qrPollingAttempts++;
+    if (qrPollingAttempts > QR_POLL_MAX_ATTEMPTS) {
+      stopQrPolling();
+      const qrBox = document.getElementById('qrcode-box');
+      if (qrBox && !qrBox.querySelector('img')) {
+        qrBox.innerHTML = '<span class="text-muted-small">Timeout aguardando QR Code. Clique em Iniciar instancia para tentar novamente.</span>';
+      }
+      return;
+    }
+    await tickQrPolling();
+  }, QR_POLL_INTERVAL_MS);
+}
+
 async function iniciarSessao() {
+  console.log('[MyZap UI] iniciarSessao: botao clicado');
   if (!(await isModoLocalAtivo())) {
     alert(`Modo local inativo ou nao validado pela API. Verifique o modo no ClickExpress e aguarde ate ${CONFIG_SYNC_INTERVAL_MS / 1000}s para sincronizacao.`);
     return;
@@ -704,18 +799,19 @@ async function iniciarSessao() {
     }
 
     statusIndicator.className = 'status-indicator waiting';
-    statusIndicator.textContent = 'ðŸš€ Iniciando sessÃ£o...';
+    statusIndicator.textContent = 'Iniciando sessao...';
 
     qrBox.innerHTML = `
       <span class="text-muted-small">
-        Inicializando sessÃ£o do WhatsApp...
+        Criando sessao no MyZap, aguarde...
       </span>
     `;
 
     const response = await window.api.startSession();
+    console.log('[MyZap UI] startSession resposta:', JSON.stringify(response));
 
     if (!response || response.result !== 'success') {
-      throw new Error('Falha ao iniciar sessÃ£o');
+      throw new Error('Sem resposta do MyZap. Verifique se o servico esta rodando (porta 5555).');
     }
 
     // 3ï¸âƒ£ Atualiza UI
@@ -727,14 +823,14 @@ async function iniciarSessao() {
     setTimeout(checkConnection, 5000);
 
   } catch (err) {
-    console.error('Erro ao iniciar sessÃ£o:', err);
+    console.error('Erro ao iniciar sessao:', err);
 
     statusIndicator.className = 'status-indicator disconnected';
     statusIndicator.textContent = 'âŒ Erro ao iniciar sessÃ£o';
 
     qrBox.innerHTML = `
       <span class="text-danger text-small">
-        NÃ£o foi possÃ­vel iniciar a sessÃ£o
+        Nao foi possivel iniciar a sessao
       </span>
     `;
   }
@@ -742,6 +838,8 @@ async function iniciarSessao() {
 
 
 async function deletarSessao() {
+  console.log('[MyZap UI] deletarSessao: botao clicado');
+  stopQrPolling(); // Cancelar polling de QR em andamento
   if (!(await isModoLocalAtivo())) {
     alert(`Modo local inativo ou nao validado pela API. Verifique o modo no ClickExpress e aguarde ate ${CONFIG_SYNC_INTERVAL_MS / 1000}s para sincronizacao.`);
     return;
@@ -756,7 +854,7 @@ async function deletarSessao() {
 
     if (!realCheck || (!realCheck.isConnected && !realCheck.isQrWaiting)) {
       statusIndicator.className = 'status-indicator disconnected';
-      statusIndicator.textContent = 'â„¹ Nenhuma sessÃ£o ativa';
+      statusIndicator.textContent = 'Nenhuma sessao ativa';
 
       setButtonsState({ canStart: true, canDelete: false });
       return;
@@ -764,11 +862,11 @@ async function deletarSessao() {
 
     // 2ï¸âƒ£ Feedback visual
     statusIndicator.className = 'status-indicator waiting';
-    statusIndicator.textContent = 'ðŸ§¹ Encerrando sessÃ£o...';
+    statusIndicator.textContent = 'Encerrando sessao...';
 
     qrBox.innerHTML = `
       <span class="text-muted-small">
-        Finalizando sessÃ£o do WhatsApp...
+        Encerrando sessao do WhatsApp...
       </span>
     `;
 
@@ -776,7 +874,7 @@ async function deletarSessao() {
     const response = await window.api.deleteSession();
 
     if (!response || response.status !== 'SUCCESS') {
-      throw new Error('Falha ao deletar sessÃ£o');
+      throw new Error('Falha ao deletar sessao');
     }
 
     // 4ï¸âƒ£ UI final
@@ -785,21 +883,21 @@ async function deletarSessao() {
 
     qrBox.innerHTML = `
       <span class="text-muted-small">
-        SessÃ£o removida com sucesso
+        Sessao removida com sucesso
       </span>
     `;
 
     setButtonsState({ canStart: true, canDelete: false });
 
   } catch (err) {
-    console.error('Erro ao deletar sessÃ£o:', err);
+    console.error('Erro ao deletar sessao:', err);
 
     statusIndicator.className = 'status-indicator disconnected';
     statusIndicator.textContent = 'âš  Erro ao deletar sessÃ£o';
 
     qrBox.innerHTML = `
       <span class="text-danger text-small">
-        NÃ£o foi possÃ­vel encerrar a sessÃ£o
+        Nao foi possivel encerrar a sessao
       </span>
     `;
   }
@@ -841,6 +939,32 @@ async function salvarMensagemPadrao() {
   }
 }
 
+function showConfigStatus(type, message) {
+  const el = document.getElementById('config-save-status');
+  if (!el) return;
+  el.classList.remove('d-none', 'alert-success', 'alert-danger', 'alert-warning', 'alert-info');
+  el.classList.add(type === 'success' ? 'alert-success' : type === 'error' ? 'alert-danger' : 'alert-info');
+  el.textContent = message;
+
+  if (type === 'success') {
+    setTimeout(() => el.classList.add('d-none'), 4000);
+  }
+}
+
+function updateConfigInstallHint(tokenValue) {
+  const hint = document.getElementById('config-install-hint');
+  const btnInstall = document.getElementById('btn-save-and-install');
+  if (!hint || !btnInstall) return;
+
+  if (!tokenValue || !tokenValue.trim()) {
+    hint.classList.remove('d-none');
+    btnInstall.classList.remove('d-none');
+  } else {
+    hint.classList.add('d-none');
+    btnInstall.classList.add('d-none');
+  }
+}
+
 const cfg_myzap = document.getElementById('myzap-config-form');
 
 cfg_myzap.onsubmit = async (e) => {
@@ -849,25 +973,82 @@ cfg_myzap.onsubmit = async (e) => {
   const oldText = btnSave.textContent;
   btnSave.disabled = true;
   btnSave.textContent = 'Salvando...';
+  const tokenVal = (document.getElementById('input-env-token')?.value || '').trim();
   try {
     const secrets = {
-      TOKEN: (document.getElementById('input-env-token')?.value || '').trim(),
+      TOKEN: tokenVal,
       OPENAI_API_KEY: (document.getElementById('input-env-openai')?.value || '').trim(),
       EMAIL_TOKEN: (document.getElementById('input-env-emailtoken')?.value || '').trim()
     };
     const result = await window.api.saveEnvSecrets(secrets);
     if (result?.status === 'success') {
-      alert('Segredos salvos com sucesso no .env do MyZap.');
+      showConfigStatus('success', '✅ ' + result.message);
+      updateConfigInstallHint(tokenVal);
     } else {
-      alert('Erro ao salvar: ' + (result?.message || 'desconhecido'));
+      showConfigStatus('error', 'Erro ao salvar: ' + (result?.message || 'desconhecido'));
     }
   } catch (err) {
-    alert('Erro ao salvar segredos: ' + (err?.message || err));
+    showConfigStatus('error', 'Erro ao salvar: ' + (err?.message || err));
   } finally {
     btnSave.disabled = false;
     btnSave.textContent = oldText;
   }
 };
+
+async function salvarEInstalar() {
+  // 1. Salvar segredos primeiro
+  const btnInstall = document.getElementById('btn-save-and-install');
+  if (btnInstall) {
+    btnInstall.disabled = true;
+    btnInstall.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Salvando...`;
+  }
+
+  const tokenVal = (document.getElementById('input-env-token')?.value || '').trim();
+  if (!tokenVal) {
+    showConfigStatus('error', 'Preencha o TOKEN antes de instalar.');
+    if (btnInstall) { btnInstall.disabled = false; btnInstall.textContent = '🚀 Salvar e Instalar'; }
+    return;
+  }
+
+  try {
+    const secrets = {
+      TOKEN: tokenVal,
+      OPENAI_API_KEY: (document.getElementById('input-env-openai')?.value || '').trim(),
+      EMAIL_TOKEN: (document.getElementById('input-env-emailtoken')?.value || '').trim()
+    };
+    await window.api.saveEnvSecrets(secrets);
+    showConfigStatus('success', '✅ Configurações salvas. Iniciando instalação...');
+
+    if (btnInstall) {
+      btnInstall.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Instalando...`;
+    }
+
+    // Ir para aba Status para acompanhar o progresso
+    const statusTab = document.getElementById('status-tab');
+    if (statusTab) statusTab.click();
+
+    // Limpar flag de remoção se existir e instalar
+    await window.api.clearUserRemovedFlag();
+    const autoConfig = await window.api.prepareMyZapAutoConfig(true);
+    if (autoConfig?.status === 'error') {
+      showConfigStatus('error', 'Erro ao buscar configurações da API: ' + (autoConfig?.message || ''));
+      if (btnInstall) { btnInstall.disabled = false; btnInstall.textContent = '🚀 Salvar e Instalar'; }
+      return;
+    }
+
+    const result = await window.api.ensureMyZapStarted(true);
+    if (result?.status === 'success') {
+      showConfigStatus('success', '✅ MyZap instalado e iniciado com sucesso!');
+      setTimeout(() => window.location.reload(), 2000);
+    } else {
+      showConfigStatus('error', 'Aviso na instalação: ' + (result?.message || ''));
+      if (btnInstall) { btnInstall.disabled = false; btnInstall.textContent = '🚀 Salvar e Instalar'; }
+    }
+  } catch (err) {
+    showConfigStatus('error', 'Erro: ' + (err?.message || err));
+    if (btnInstall) { btnInstall.disabled = false; btnInstall.textContent = '🚀 Salvar e Instalar'; }
+  }
+}
 
 function atualizaStatus() {
   window.location.reload();
@@ -938,7 +1119,7 @@ async function installMyZap() {
   const myzap_envContent = (await window.api.getStore('myzap_envContent')) ?? '';
 
   if (!myzap_diretorio) {
-    alert('Por favor, salve as configuraÃ§Ãµes antes de instalar o MyZap.');
+    alert('Por favor, salve as configuracoes antes de instalar o MyZap.');
     return;
   }
 
@@ -975,7 +1156,7 @@ async function installMyZap() {
       throw new Error(clone.message || 'Erro desconhecido');
     }
 
-    statusBadge.textContent = 'MyZap se encontra no diretÃ³rio configurado!';
+    statusBadge.textContent = 'MyZap se encontra no diretorio configurado!';
     statusBadge.className = 'badge bg-success status-badge';
 
     setTimeout(() => {
@@ -990,13 +1171,13 @@ async function installMyZap() {
     btnInstall.innerHTML = originalBtnText;
     btnInstall.disabled = false;
 
-    statusBadge.textContent = 'Falha na instalaÃ§Ã£o';
+    statusBadge.textContent = 'Falha na instalacao';
     statusBadge.className = 'badge bg-danger status-badge';
   }
 }
 
 async function reinstallMyZap() {
-  if (!confirm("Deseja reinstalar o MyZap? Isso substituirÃ¡ a instalaÃ§Ã£o atual.")) {
+  if (!confirm("Deseja reinstalar o MyZap? Isso ira substituir a instalacao atual.")) {
     return;
   }
 
@@ -1004,7 +1185,7 @@ async function reinstallMyZap() {
   const myzap_envContent = (await window.api.getStore('myzap_envContent')) ?? '';
 
   if (!myzap_diretorio) {
-    alert('Por favor, salve as configuraÃ§Ãµes antes de re-instalar o MyZap.');
+    alert('Por favor, salve as configuracoes antes de re-instalar o MyZap.');
     return;
   }
 
@@ -1037,7 +1218,7 @@ async function reinstallMyZap() {
     statusBadge.textContent = 'Baixando arquivos...';
     statusBadge.className = 'badge bg-warning text-dark status-badge';
 
-    statusRunBadge.textContent = 'Aguardando reinstalaÃ§Ã£o...';
+    statusRunBadge.textContent = 'Aguardando reinstalacao...';
     statusRunBadge.className = 'badge bg-secondary status-badge';
 
     const clone = await window.api.cloneRepository(
@@ -1050,7 +1231,7 @@ async function reinstallMyZap() {
       throw new Error(clone.message || 'Erro desconhecido');
     }
 
-    statusBadge.textContent = 'MyZap se encontra no diretÃ³rio configurado!';
+    statusBadge.textContent = 'MyZap se encontra no diretorio configurado!';
     statusBadge.className = 'badge bg-success status-badge';
 
     setTimeout(() => {
@@ -1065,7 +1246,7 @@ async function reinstallMyZap() {
     btnInstall.innerHTML = originalBtnText;
     btnInstall.disabled = false;
 
-    statusBadge.textContent = 'Falha na instalaÃ§Ã£o';
+    statusBadge.textContent = 'Falha na instalacao';
     statusBadge.className = 'badge bg-danger status-badge';
     setTimeout(() => {
       atualizaStatus();
@@ -1076,6 +1257,13 @@ async function reinstallMyZap() {
 // ═══════════════════════════════════════════════════
 // REMOVER TUDO (RESET COMPLETO)
 // ═══════════════════════════════════════════════════
+
+function setPanelVisible(visible) {
+  const tabs = document.getElementById('myzapTabs');
+  const tabContent = document.querySelector('.tab-content');
+  if (tabs) tabs.classList.toggle('d-none', !visible);
+  if (tabContent) tabContent.classList.toggle('d-none', !visible);
+}
 
 function setResetFeedback({ show, type, icon, title, message, details, showInstallAgain }) {
   const box = document.getElementById('reset-feedback-box');
@@ -1115,6 +1303,9 @@ function setResetFeedback({ show, type, icon, title, message, details, showInsta
   } else {
     btnAgain.classList.add('d-none');
   }
+
+  // Scroll pro topo para garantir visibilidade
+  box.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function setAllButtonsDisabled(disabled) {
@@ -1155,11 +1346,16 @@ async function removerTudoMyZap() {
       showInstallAgain: false
     });
 
+    // Esconder painel durante o processo
+    setPanelVisible(false);
+
     // Chamar o reset no backend
     const result = await window.api.resetEnvironment({ removeTools: false });
 
     if (!result || result.status === 'error') {
-      // Erro
+      // Erro — reexibir painel
+      setPanelVisible(true);
+
       setResetFeedback({
         show: true,
         type: 'error',
@@ -1198,32 +1394,15 @@ async function removerTudoMyZap() {
       showInstallAgain: true
     });
 
-    // Atualizar badges de status
-    const statusApi = document.getElementById('status-api');
-    const statusInstallation = document.getElementById('status-installation');
-    const statusConfig = document.getElementById('status-config');
-
-    if (statusApi) {
-      statusApi.textContent = 'MyZap removido';
-      statusApi.className = 'badge bg-secondary status-badge';
-    }
-    if (statusInstallation) {
-      statusInstallation.textContent = 'Nao instalado';
-      statusInstallation.className = 'badge bg-secondary status-badge';
-    }
-    if (statusConfig) {
-      statusConfig.textContent = 'Limpo';
-      statusConfig.className = 'badge bg-secondary status-badge';
-    }
-
-    // Esconder o botao remover (ja removeu tudo)
+    // Painel continua escondido — so mostra feedback + botao instalar novamente
     if (btnRemove) btnRemove.classList.add('d-none');
-
-    // Manter botoes desabilitados (exceto "Instalar Novamente" que aparece)
     setAllButtonsDisabled(true);
 
   } catch (err) {
     console.error('Erro ao remover MyZap:', err);
+
+    // Reexibir painel em caso de erro
+    setPanelVisible(true);
 
     setResetFeedback({
       show: true,
@@ -1256,6 +1435,42 @@ async function instalarNovamente() {
     // Limpar flag que impede auto-install
     await window.api.clearUserRemovedFlag();
 
+    // Verificar TOKEN — gerar automaticamente se estiver vazio
+    setResetFeedback({
+      show: true,
+      type: 'info',
+      icon: '',
+      title: 'Preparando instalacao...',
+      message: 'Verificando configuracoes e TOKEN. Aguarde...',
+      details: null,
+      showInstallAgain: false
+    });
+
+    const envSecrets = await window.api.readEnvSecrets();
+    const tokenAtual = (envSecrets?.TOKEN || '').trim();
+    if (!tokenAtual) {
+      // Gerar token aleatorio de 64 chars hex
+      const arr = new Uint8Array(32);
+      crypto.getRandomValues(arr);
+      const novoToken = Array.from(arr).map((b) => b.toString(16).padStart(2, '0')).join('');
+      await window.api.saveEnvSecrets({
+        TOKEN: novoToken,
+        OPENAI_API_KEY: envSecrets?.OPENAI_API_KEY || '',
+        EMAIL_TOKEN: envSecrets?.EMAIL_TOKEN || ''
+      });
+      setResetFeedback({
+        show: true,
+        type: 'info',
+        icon: '',
+        title: 'Token gerado automaticamente',
+        message: `Novo TOKEN gerado e salvo nas configuracoes: ${novoToken.slice(0, 16)}...`,
+        details: 'O TOKEN completo esta salvo em Configuracoes > TOKEN.',
+        showInstallAgain: false
+      });
+      // Aguardar 1.5s para o usuario ver o token gerado
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+
     // Forcar refresh da config remota para repopular o store
     setResetFeedback({
       show: true,
@@ -1286,6 +1501,17 @@ async function instalarNovamente() {
       return;
     }
 
+    // Atualizar feedback — agora executando instalacao
+    setResetFeedback({
+      show: true,
+      type: 'info',
+      icon: '',
+      title: 'Instalando MyZap...',
+      message: 'Clonando repositorio, instalando dependencias e iniciando servico. Isso pode levar alguns minutos...',
+      details: null,
+      showInstallAgain: false
+    });
+
     // Tentar iniciar o processo completo (ensureStarted faz clone + install + start)
     const result = await window.api.ensureMyZapStarted(true);
 
@@ -1295,14 +1521,14 @@ async function instalarNovamente() {
         type: 'success',
         icon: '',
         title: 'MyZap instalado e iniciado!',
-        message: result.message || 'O MyZap foi reinstalado com sucesso.',
+        message: result.message || 'O MyZap foi reinstalado com sucesso. Recarregando painel...',
         details: null,
         showInstallAgain: false
       });
 
-      // Recarregar painel apos 2s
+      // Recarregar painel completo apos 2s
       setTimeout(() => {
-        atualizaStatus();
+        window.location.reload();
       }, 2000);
     } else {
       setResetFeedback({
@@ -1310,8 +1536,10 @@ async function instalarNovamente() {
         type: 'warning',
         icon: '',
         title: 'Instalacao com avisos',
-        message: result?.message || 'A instalacao pode nao ter completado totalmente. Verifique o status.',
-        details: null,
+        message: result?.message || 'A instalacao pode nao ter completado totalmente.',
+        details: result?.message?.includes('TOKEN') || result?.message?.includes('required') || result?.message?.includes('codigo 1')
+          ? 'Verifique se o TOKEN esta preenchido: va em Configuracoes > TOKEN e salve a chave do MyZap.'
+          : 'Verifique os logs e tente novamente.',
         showInstallAgain: true
       });
       if (btnAgain) {

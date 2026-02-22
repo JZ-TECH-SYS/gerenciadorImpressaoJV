@@ -233,6 +233,10 @@ async function processarFilaUmaRodada() {
   processando = true;
   processandoDesde = Date.now();
 
+  info('[FilaMyZap] Iniciando ciclo de processamento da fila', {
+    metadata: { area: 'whatsappQueueWatcher' }
+  });
+
   try {
     // Validar MyZap disponivel antes de buscar pendentes
     const configAtual = await obterCredenciaisAtivas();
@@ -279,9 +283,13 @@ async function processarFilaUmaRodada() {
     ultimoLote = lote.length;
     ultimaExecucaoEm = new Date().toISOString();
 
-    if (lote.length > 0) {
-      info('Processando lote da fila MyZap', {
-        metadata: { totalPendentes: pendentes.length, tamanhoLote: lote.length }
+    info('[FilaMyZap] Busca de pendentes concluida', {
+      metadata: { totalPendentes: pendentes.length, tamanhoLote: lote.length }
+    });
+
+    if (lote.length === 0) {
+      info('[FilaMyZap] Nenhuma mensagem pendente para envio neste ciclo', {
+        metadata: { area: 'whatsappQueueWatcher' }
       });
     }
 
@@ -297,11 +305,19 @@ async function processarFilaUmaRodada() {
 
       let novoStatus = 'erro';
       try {
+        info('[FilaMyZap] Enviando mensagem', {
+          metadata: { idfila: mensagem?.idfila, idempresa: mensagem?.idempresa }
+        });
+
         const envio = await enviarParaMyZap(mensagem, sessionKey, sessionToken);
         novoStatus = envio.ok ? 'enviado' : 'erro';
 
-        if (!envio.ok) {
-          warn('Falha ao enviar mensagem para MyZap', {
+        if (envio.ok) {
+          info('[FilaMyZap] Mensagem enviada com sucesso', {
+            metadata: { idfila: mensagem?.idfila, idempresa: mensagem?.idempresa }
+          });
+        } else {
+          warn('[FilaMyZap] Falha ao enviar mensagem para MyZap', {
             metadata: {
               idfila: mensagem?.idfila,
               idempresa: mensagem?.idempresa,
@@ -335,6 +351,10 @@ async function processarFilaUmaRodada() {
         });
       }
     }
+
+    info('[FilaMyZap] Ciclo de processamento concluido', {
+      metadata: { area: 'whatsappQueueWatcher', loteProcessado: lote.length }
+    });
 
     ultimoErro = null;
   } catch (e) {
