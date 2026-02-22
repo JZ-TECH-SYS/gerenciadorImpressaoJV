@@ -55,11 +55,22 @@ async function enviarStatusMyZap() {
   ultimaExecucaoEm = new Date().toISOString();
 
   if (!clickApiUrl || !clickToken || !sessionKey || !sessionName) {
+    info('[StatusMyZap] Config incompleta, pulando envio de status', {
+      metadata: { area: 'myzapStatusWatcher', clickApiUrl: !!clickApiUrl, clickToken: !!clickToken, sessionKey: !!sessionKey, sessionName: !!sessionName }
+    });
     return false;
   }
 
+  info('[StatusMyZap] Consultando status real do MyZap (verifyRealStatus)', {
+    metadata: { area: 'myzapStatusWatcher', sessionKey }
+  });
+
   const realStatusPayload = await verifyRealStatus();
   const status = isMyZapConnected(realStatusPayload) ? 'ativo' : 'inativo';
+
+  info('[StatusMyZap] Status resolvido', {
+    metadata: { area: 'myzapStatusWatcher', status, realStatus: realStatusPayload?.realStatus }
+  });
 
   const body = {
     sessionKey,
@@ -67,7 +78,6 @@ async function enviarStatusMyZap() {
     status_myzap: status,
     data_ult_verificacao: formatDateTimeForApi()
   };
-
 
   const res = await fetch(`${clickApiUrl}parametrizacao-myzap/status`, {
     method: 'PUT',
@@ -79,22 +89,30 @@ async function enviarStatusMyZap() {
   });
 
   const data = await res.json().catch(() => ({}));
-  
+
   if (!res.ok || data?.error) {
     throw new Error(data?.error || `HTTP ${res.status}`);
   }
+
+  info('[StatusMyZap] Status atualizado na API com sucesso', {
+    metadata: { area: 'myzapStatusWatcher', httpStatus: res.status, statusEnviado: status }
+  });
 
   return true;
 }
 
 async function processarUmaRodada() {
+  info('[StatusMyZap] Iniciando ciclo de atualizacao de status', {
+    metadata: { area: 'myzapStatusWatcher' }
+  });
+
   try {
     await enviarStatusMyZap();
     ultimoErro = null;
   } catch (err) {
     ultimoErro = err?.message || String(err);
-    warn('Falha ao atualizar status passivo do MyZap na ClickExpress', {
-      metadata: { area: 'myzapStatusWatcher', error: err }
+    warn('[StatusMyZap] Falha ao atualizar status passivo do MyZap na ClickExpress', {
+      metadata: { area: 'myzapStatusWatcher', error: err?.message || String(err) }
     });
   }
 }
