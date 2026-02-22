@@ -1073,3 +1073,267 @@ async function reinstallMyZap() {
   }
 }
 
+// ═══════════════════════════════════════════════════
+// REMOVER TUDO (RESET COMPLETO)
+// ═══════════════════════════════════════════════════
+
+function setResetFeedback({ show, type, icon, title, message, details, showInstallAgain }) {
+  const box = document.getElementById('reset-feedback-box');
+  const alertEl = document.getElementById('reset-feedback-alert');
+  const iconEl = document.getElementById('reset-feedback-icon');
+  const titleEl = document.getElementById('reset-feedback-title');
+  const msgEl = document.getElementById('reset-feedback-message');
+  const detailsEl = document.getElementById('reset-feedback-details');
+  const btnAgain = document.getElementById('btn-install-again');
+
+  if (!box) return;
+
+  if (!show) {
+    box.classList.add('d-none');
+    return;
+  }
+
+  box.classList.remove('d-none');
+
+  alertEl.classList.remove('alert-info', 'alert-success', 'alert-danger', 'alert-warning');
+  alertEl.classList.add(type === 'success' ? 'alert-success' : type === 'error' ? 'alert-danger' : type === 'warning' ? 'alert-warning' : 'alert-info');
+
+  iconEl.textContent = icon || '';
+  titleEl.textContent = title || '';
+  msgEl.textContent = message || '';
+
+  if (details) {
+    detailsEl.classList.remove('d-none');
+    detailsEl.textContent = details;
+  } else {
+    detailsEl.classList.add('d-none');
+    detailsEl.textContent = '';
+  }
+
+  if (showInstallAgain) {
+    btnAgain.classList.remove('d-none');
+  } else {
+    btnAgain.classList.add('d-none');
+  }
+}
+
+function setAllButtonsDisabled(disabled) {
+  const ids = ['btn-start', 'btn-install', 'btn-reinstall', 'btn-install-dropdown', 'btn-refresh-status', 'btn-remove-all', 'btn-start-session', 'btn-delete-session'];
+  ids.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = disabled;
+  });
+}
+
+async function removerTudoMyZap() {
+  if (!confirm('Tem certeza que deseja REMOVER TUDO do MyZap local?\n\nIsso ira:\n- Parar o servico do MyZap\n- Remover todos os arquivos instalados\n- Limpar todas as configuracoes salvas\n\nVoce podera reinstalar depois.')) {
+    return;
+  }
+
+  const btnRemove = document.getElementById('btn-remove-all');
+  const originalBtnText = btnRemove ? btnRemove.innerHTML : '';
+
+  try {
+    // Desabilitar todos os botoes durante o processo
+    setAllButtonsDisabled(true);
+
+    if (btnRemove) {
+      btnRemove.innerHTML = `
+        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+        Removendo...
+      `;
+    }
+
+    // Feedback: processo iniciado
+    setResetFeedback({
+      show: true,
+      type: 'info',
+      icon: '',
+      title: 'Removendo MyZap local...',
+      message: 'Parando servicos, removendo arquivos e limpando configuracoes. Aguarde...',
+      details: null,
+      showInstallAgain: false
+    });
+
+    // Chamar o reset no backend
+    const result = await window.api.resetEnvironment({ removeTools: false });
+
+    if (!result || result.status === 'error') {
+      // Erro
+      setResetFeedback({
+        show: true,
+        type: 'error',
+        icon: '',
+        title: 'Erro ao remover MyZap',
+        message: result?.message || 'Erro desconhecido durante a remocao.',
+        details: result?.data?.warnings?.length ? 'Avisos: ' + result.data.warnings.join('; ') : null,
+        showInstallAgain: false
+      });
+
+      if (btnRemove) {
+        btnRemove.innerHTML = originalBtnText;
+        btnRemove.disabled = false;
+      }
+      return;
+    }
+
+    // Sucesso ou warning
+    const isWarning = result.status === 'warning';
+    const dirResults = result.data?.directories || [];
+    const removedDirs = dirResults.filter((d) => d.removed).map((d) => d.path);
+    const skippedDirs = dirResults.filter((d) => d.skipped).map((d) => `${d.path} (${d.reason})`);
+
+    let detailsText = '';
+    if (removedDirs.length > 0) detailsText += `Diretorios removidos: ${removedDirs.join(', ')}. `;
+    if (skippedDirs.length > 0) detailsText += `Diretorios ignorados: ${skippedDirs.join(', ')}. `;
+    if (result.data?.warnings?.length) detailsText += `Avisos: ${result.data.warnings.join('; ')}`;
+
+    setResetFeedback({
+      show: true,
+      type: isWarning ? 'warning' : 'success',
+      icon: isWarning ? '' : '',
+      title: isWarning ? 'Remocao concluida com avisos' : 'MyZap removido com sucesso!',
+      message: result.message,
+      details: detailsText.trim() || null,
+      showInstallAgain: true
+    });
+
+    // Atualizar badges de status
+    const statusApi = document.getElementById('status-api');
+    const statusInstallation = document.getElementById('status-installation');
+    const statusConfig = document.getElementById('status-config');
+
+    if (statusApi) {
+      statusApi.textContent = 'MyZap removido';
+      statusApi.className = 'badge bg-secondary status-badge';
+    }
+    if (statusInstallation) {
+      statusInstallation.textContent = 'Nao instalado';
+      statusInstallation.className = 'badge bg-secondary status-badge';
+    }
+    if (statusConfig) {
+      statusConfig.textContent = 'Limpo';
+      statusConfig.className = 'badge bg-secondary status-badge';
+    }
+
+    // Esconder o botao remover (ja removeu tudo)
+    if (btnRemove) btnRemove.classList.add('d-none');
+
+    // Manter botoes desabilitados (exceto "Instalar Novamente" que aparece)
+    setAllButtonsDisabled(true);
+
+  } catch (err) {
+    console.error('Erro ao remover MyZap:', err);
+
+    setResetFeedback({
+      show: true,
+      type: 'error',
+      icon: '',
+      title: 'Erro inesperado',
+      message: `Falha ao remover MyZap: ${err?.message || err}`,
+      details: null,
+      showInstallAgain: false
+    });
+
+    if (btnRemove) {
+      btnRemove.innerHTML = originalBtnText;
+      btnRemove.disabled = false;
+    }
+  }
+}
+
+async function instalarNovamente() {
+  const btnAgain = document.getElementById('btn-install-again');
+  if (btnAgain) {
+    btnAgain.disabled = true;
+    btnAgain.innerHTML = `
+      <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+      Preparando instalacao...
+    `;
+  }
+
+  try {
+    // Limpar flag que impede auto-install
+    await window.api.clearUserRemovedFlag();
+
+    // Forcar refresh da config remota para repopular o store
+    setResetFeedback({
+      show: true,
+      type: 'info',
+      icon: '',
+      title: 'Reinstalando MyZap...',
+      message: 'Buscando configuracoes da API e preparando nova instalacao. Aguarde...',
+      details: null,
+      showInstallAgain: false
+    });
+
+    const autoConfig = await window.api.prepareMyZapAutoConfig(true);
+
+    if (autoConfig?.status === 'error') {
+      setResetFeedback({
+        show: true,
+        type: 'error',
+        icon: '',
+        title: 'Erro ao buscar configuracoes',
+        message: `Nao foi possivel obter configuracoes da API: ${autoConfig?.message || 'erro desconhecido'}. Feche e reabra o painel para tentar novamente.`,
+        details: null,
+        showInstallAgain: true
+      });
+      if (btnAgain) {
+        btnAgain.disabled = false;
+        btnAgain.textContent = 'Instalar Novamente';
+      }
+      return;
+    }
+
+    // Tentar iniciar o processo completo (ensureStarted faz clone + install + start)
+    const result = await window.api.ensureMyZapStarted(true);
+
+    if (result?.status === 'success') {
+      setResetFeedback({
+        show: true,
+        type: 'success',
+        icon: '',
+        title: 'MyZap instalado e iniciado!',
+        message: result.message || 'O MyZap foi reinstalado com sucesso.',
+        details: null,
+        showInstallAgain: false
+      });
+
+      // Recarregar painel apos 2s
+      setTimeout(() => {
+        atualizaStatus();
+      }, 2000);
+    } else {
+      setResetFeedback({
+        show: true,
+        type: 'warning',
+        icon: '',
+        title: 'Instalacao com avisos',
+        message: result?.message || 'A instalacao pode nao ter completado totalmente. Verifique o status.',
+        details: null,
+        showInstallAgain: true
+      });
+      if (btnAgain) {
+        btnAgain.disabled = false;
+        btnAgain.textContent = 'Instalar Novamente';
+      }
+    }
+
+  } catch (err) {
+    console.error('Erro ao reinstalar MyZap:', err);
+    setResetFeedback({
+      show: true,
+      type: 'error',
+      icon: '',
+      title: 'Erro ao reinstalar',
+      message: `Falha: ${err?.message || err}. Feche e reabra o painel para tentar novamente.`,
+      details: null,
+      showInstallAgain: true
+    });
+    if (btnAgain) {
+      btnAgain.disabled = false;
+      btnAgain.textContent = 'Instalar Novamente';
+    }
+  }
+}

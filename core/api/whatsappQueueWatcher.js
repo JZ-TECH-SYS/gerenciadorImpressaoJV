@@ -4,9 +4,12 @@ const { info, warn, error, debug } = require('../myzap/myzapLogger');
 const store = new Store();
 const MYZAP_API_URL = 'http://localhost:5555/';
 const LOOP_INTERVAL_MS = 30000;
+const FETCH_TIMEOUT_MS = 15000;
+const PROCESSANDO_TIMEOUT_MS = 120000;
 
 let ativo = false;
 let processando = false;
+let processandoDesde = 0;
 let timer = null;
 let ultimaExecucaoEm = null;
 let ultimoErro = null;
@@ -27,6 +30,9 @@ async function validarDisponibilidadeMyZap(sessionKey, sessionToken) {
       metadata: { sessionKey }
     });
 
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+
     const res = await fetch(`${MYZAP_API_URL}verifyRealStatus`, {
       method: 'POST',
       headers: {
@@ -34,8 +40,11 @@ async function validarDisponibilidadeMyZap(sessionKey, sessionToken) {
         apitoken: sessionToken,
         sessionkey: sessionKey
       },
-      body: JSON.stringify({ session: sessionKey })
+      body: JSON.stringify({ session: sessionKey }),
+      signal: ctrl.signal
     });
+
+    clearTimeout(timeout);
 
     const data = await res.json().catch(() => ({}));
     debug('[FilaMyZap] Retorno verifyRealStatus', { metadata: { status: res.status, data } });
@@ -54,11 +63,17 @@ async function buscarPendentes(apiBaseUrl, token, sessionKey, sessionToken) {
     sessionToken: sessionToken || ''
   }).toString();
 
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+
   debug('[FilaMyZap] Buscando pendentes', { metadata: { apiBaseUrl, sessionKey, query } });
   const res = await fetch(`${apiBaseUrl}parametrizacao-myzap/pendentes?${query}`, {
     method: 'GET',
-    headers: { Authorization: `Bearer ${token}` }
+    headers: { Authorization: `Bearer ${token}` },
+    signal: ctrl.signal
   });
+
+  clearTimeout(timeout);
 
   const data = await res.json().catch(() => ({}));
   debug('[FilaMyZap] Retorno /parametrizacao-myzap/pendentes', {
@@ -76,6 +91,9 @@ async function buscarPendentes(apiBaseUrl, token, sessionKey, sessionToken) {
 }
 
 async function atualizarStatusFila(apiBaseUrl, token, payload) {
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+
   debug('[FilaMyZap] Atualizando status da fila', { metadata: payload });
   const res = await fetch(`${apiBaseUrl}parametrizacao-myzap/fila/status`, {
     method: 'POST',
@@ -83,8 +101,11 @@ async function atualizarStatusFila(apiBaseUrl, token, payload) {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`
     },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    signal: ctrl.signal
   });
+
+  clearTimeout(timeout);
 
   const data = await res.json().catch(() => ({}));
   debug('[FilaMyZap] Retorno /parametrizacao-myzap/fila/status', {
@@ -127,6 +148,10 @@ async function enviarParaMyZap(mensagem, fallbackSessionKey, fallbackApiToken) {
       sessionKey
     }
   });
+
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+
   const res = await fetch(`${MYZAP_API_URL}${endpointNormalizado}`, {
     method: 'POST',
     headers: {
@@ -134,8 +159,11 @@ async function enviarParaMyZap(mensagem, fallbackSessionKey, fallbackApiToken) {
       apitoken: apiToken,
       sessionkey: sessionKey
     },
-    body: JSON.stringify(data)
+    body: JSON.stringify(data),
+    signal: ctrl.signal
   });
+
+  clearTimeout(timeout);
 
   const body = await res.json().catch(() => ({}));
   debug('[FilaMyZap] Retorno MyZap', {
@@ -187,8 +215,23 @@ async function listarPendentesMyZap() {
 }
 
 async function processarFilaUmaRodada() {
-  if (!ativo || processando) return;
+  if (!ativo) return;
+
+  // Protecao contra processamento travado (timeout de seguranca)
+  if (processando) {
+    const elapsed = Date.now() - processandoDesde;
+    if (elapsed > PROCESSANDO_TIMEOUT_MS) {
+      warn('[FilaMyZap] Processamento anterior travado, resetando flag processando', {
+        metadata: { area: 'whatsappQueueWatcher', elapsedMs: elapsed }
+      });
+      processando = false;
+    } else {
+      return;
+    }
+  }
+
   processando = true;
+  processandoDesde = Date.now();
 
   try {
     // Validar MyZap disponivel antes de buscar pendentes

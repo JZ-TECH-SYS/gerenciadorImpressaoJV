@@ -9,11 +9,13 @@ const startSession = require('../myzap/api/startSession');
 const deleteSession = require('../myzap/api/deleteSession');
 const verifyRealStatus = require('../myzap/api/verifyRealStatus');
 const updateIaConfig = require('../myzap/api/updateIaConfig');
-const iniciarMyZap = require('../myzap/iniciarMyZap');
+const { iniciarMyZap } = require('../myzap/iniciarMyZap');
 const {
     prepareAutoConfig,
     ensureMyZapReadyAndStart
 } = require('../myzap/autoConfig');
+const { resetMyZapEnvironment } = require('../myzap/resetEnvironment');
+const { getStateSnapshot } = require('../myzap/stateMachine');
 const {
     getUltimosPendentesMyZap,
     startWhatsappQueueWatcher,
@@ -275,6 +277,41 @@ function registerMyZapHandlers(ipcMain) {
     });
 
     // ── .env secrets handlers ──────────────────────────────
+
+    ipcMain.handle('myzap:resetEnvironment', async (_event, options = {}) => {
+        try {
+            info('IPC myzap:resetEnvironment recebido', {
+                metadata: { area: 'ipcMyzap', options }
+            });
+            return await resetMyZapEnvironment(options);
+        } catch (error) {
+            warn('Falha ao resetar ambiente MyZap via IPC', {
+                metadata: { error }
+            });
+            return {
+                status: 'error',
+                message: error.message || String(error)
+            };
+        }
+    });
+
+    ipcMain.handle('myzap:getStateSnapshot', async () => {
+        try {
+            return getStateSnapshot();
+        } catch (error) {
+            warn('Falha ao obter snapshot de estado MyZap via IPC', {
+                metadata: { error }
+            });
+            return {
+                state: 'error',
+                label: 'Erro',
+                progress: 0,
+                error: error.message || String(error)
+            };
+        }
+    });
+
+    // ── .env secrets handlers (continuacao) ─────────────────
     ipcMain.handle('myzap:saveEnvSecrets', async (_event, secrets) => {
         try {
             const { TOKEN = '', OPENAI_API_KEY = '', EMAIL_TOKEN = '' } = secrets || {};
@@ -322,6 +359,19 @@ function registerMyZapHandlers(ipcMain) {
         } catch (error) {
             warn('Falha ao ler segredos .env via IPC', { metadata: { error } });
             return { TOKEN: '', OPENAI_API_KEY: '', EMAIL_TOKEN: '' };
+        }
+    });
+
+    ipcMain.handle('myzap:clearUserRemovedFlag', async () => {
+        try {
+            envStore.delete('myzap_userRemovedLocal');
+            info('Flag myzap_userRemovedLocal removida pelo usuario (re-install solicitado)', {
+                metadata: { area: 'ipcMyzap' }
+            });
+            return { status: 'success' };
+        } catch (error) {
+            warn('Falha ao limpar flag userRemovedLocal via IPC', { metadata: { error } });
+            return { status: 'error', message: error.message || String(error) };
         }
     });
 }

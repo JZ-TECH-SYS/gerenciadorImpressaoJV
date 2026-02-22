@@ -13,6 +13,7 @@ const verificarDiretorio = require('./verificarDiretorio');
 const clonarRepositorio = require('./clonarRepositorio');
 const atualizarEnv = require('./atualizarEnv');
 const updateIaConfig = require('./api/updateIaConfig');
+const { transition, forceTransition, getState } = require('./stateMachine');
 
 const store = new Store();
 const REMOTE_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
@@ -681,6 +682,7 @@ async function ensureMyZapReadyAndStart(options = {}) {
 
     ensureInFlightStartedAt = Date.now();
     ensureInFlight = (async () => {
+        transition('checking_config', { message: 'Iniciando sincronizacao do MyZap...' });
         startProgress('Iniciando sincronizacao do MyZap...', 'start', { options });
 
         const prep = await prepareAutoConfig(options);

@@ -8,6 +8,7 @@ const { killProcessesOnPort, commandExists, isPortInUse } = require('./processUt
 const { getDefaultMyZapDirectory } = require('./autoConfig');
 const { killMyZapProcess } = require('./iniciarMyZap');
 const { transition, forceTransition } = require('./stateMachine');
+const { clearProgress } = require('./progress');
 
 const store = new Store();
 const KILL_RETRY_ATTEMPTS = 3;
@@ -299,7 +300,10 @@ async function resetMyZapEnvironment(options = {}) {
         // 4. Limpar store
         const clearedKeys = clearMyZapStoreKeys();
 
-        // 4b. Marcar que usuario removeu explicitamente (impede auto-install)
+        // 4b. Limpar progresso ativo (evita stale)
+        clearProgress();
+
+        // 4c. Marcar que usuario removeu explicitamente (impede auto-install)
         store.set('myzap_userRemovedLocal', true);
 
         // 5. Desinstalar ferramentas (apenas se confirmado)

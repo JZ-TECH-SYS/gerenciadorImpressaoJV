@@ -1,8 +1,38 @@
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { error: logError, info } = require('./myzapLogger');
+const { error: logError, info, warn } = require('./myzapLogger');
 const { isPortInUse, getPnpmCommand } = require('./processUtils');
+const { transition } = require('./stateMachine');
+
+/** Referencia ao child process ativo do MyZap (pnpm start) */
+let myzapChildProcess = null;
+
+/**
+ * Mata o child process rastreado do MyZap, se existir.
+ */
+function killMyZapProcess() {
+    if (!myzapChildProcess) {
+        info('killMyZapProcess: nenhum child process rastreado para matar', {
+            metadata: { area: 'iniciarMyZap' }
+        });
+        return;
+    }
+
+    try {
+        const pid = myzapChildProcess.pid;
+        myzapChildProcess.kill('SIGTERM');
+        info('killMyZapProcess: SIGTERM enviado ao child process do MyZap', {
+            metadata: { area: 'iniciarMyZap', pid }
+        });
+    } catch (err) {
+        warn('killMyZapProcess: falha ao matar child process', {
+            metadata: { area: 'iniciarMyZap', error: err?.message || String(err) }
+        });
+    } finally {
+        myzapChildProcess = null;
+    }
+}
 
 function executarComando(comando, args, cwd) {
     return new Promise((resolve, reject) => {
@@ -46,6 +76,9 @@ async function iniciarMyZap(dirPath, options = {}) {
             ? options.onProgress
             : () => {};
         const porta = 5555;
+
+        transition('starting_service', { message: 'Validando se o MyZap ja esta em execucao...', dirPath });
+
         reportProgress('Validando se o MyZap ja esta em execucao...', 'check_runtime', {
             percent: 86,
             dirPath,
@@ -54,6 +87,7 @@ async function iniciarMyZap(dirPath, options = {}) {
         const estaRodando = await isPortInUse(porta);
 
         if (estaRodando) {
+            transition('running', { message: 'MyZap ja estava em execucao local.', dirPath, porta });
             reportProgress('MyZap ja estava em execucao local.', 'already_running', {
                 percent: 95,
                 dirPath,
@@ -102,6 +136,9 @@ async function iniciarMyZap(dirPath, options = {}) {
             detached: false
         });
 
+        // Rastrear child process para kill posterior
+        myzapChildProcess = child;
+
         child.stdout.on('data', (data) => {
             info('MyZap runtime stdout', {
                 metadata: {
@@ -129,6 +166,10 @@ async function iniciarMyZap(dirPath, options = {}) {
             if (typeof code === 'number' && code !== 0) {
                 childError = new Error(`MyZap finalizou com codigo ${code} (signal: ${signal || 'nenhum'})`);
             }
+            // Limpar referencia do child ao sair
+            if (myzapChildProcess === child) {
+                myzapChildProcess = null;
+            }
         });
 
         reportProgress('Aguardando MyZap abrir a porta local...', 'wait_port', {
@@ -139,6 +180,12 @@ async function iniciarMyZap(dirPath, options = {}) {
         const abriuPorta = await aguardarPorta(porta, 20000, 500);
 
         if (!abriuPorta) {
+            transition('error', {
+                message: childError
+                    ? `Falha ao iniciar: ${childError.message}`
+                    : `MyZap nao abriu a porta ${porta} dentro do tempo esperado.`,
+                phase: 'start_service'
+            });
             return {
                 status: 'error',
                 message: childError
@@ -146,6 +193,8 @@ async function iniciarMyZap(dirPath, options = {}) {
                     : `MyZap nao abriu a porta ${porta} dentro do tempo esperado.`
             };
         }
+
+        transition('running', { message: 'MyZap iniciado e porta confirmada.', dirPath, porta });
 
         info('MyZap iniciado e porta confirmada', {
             metadata: { porta, dirPath, runner: pnpmRunner.command }
@@ -161,6 +210,7 @@ async function iniciarMyZap(dirPath, options = {}) {
             message: 'MyZap iniciado com sucesso!'
         };
     } catch (err) {
+        transition('error', { message: err?.message || String(err), phase: 'start_service' });
         logError('Erro ao gerenciar inicio do MyZap', { metadata: { error: err } });
         return {
             status: 'error',
@@ -169,4 +219,4 @@ async function iniciarMyZap(dirPath, options = {}) {
     }
 }
 
-module.exports = iniciarMyZap;
+module.exports = { iniciarMyZap, killMyZapProcess };

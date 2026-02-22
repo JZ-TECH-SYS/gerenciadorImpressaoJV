@@ -3,8 +3,9 @@ const { error: logError, warn, info } = require('./myzapLogger');
 const path = require('path');
 const fs = require('fs');
 const { killProcessesOnPort, commandExists, getPnpmCommand } = require('./processUtils');
-const iniciarMyZap = require('./iniciarMyZap');
+const { iniciarMyZap } = require('./iniciarMyZap');
 const { syncMyZapConfigs } = require('./syncConfigs');
+const { transition } = require('./stateMachine');
 
 function rodarComando(comando, args, opcoes = {}) {
     return new Promise((resolve) => {
@@ -44,6 +45,8 @@ async function clonarRepositorio(dirPath, envContent, reinstall = false, options
             percent: 10,
             dirPath
         });
+
+        transition('checking_config', { message: 'Verificando pre-requisitos locais...', dirPath });
 
         if (!(await commandExists('git'))) {
             return {
@@ -98,6 +101,9 @@ async function clonarRepositorio(dirPath, envContent, reinstall = false, options
 
         const repoUrl = 'https://github.com/JZ-TECH-SYS/myzap.git';
         fs.mkdirSync(path.dirname(dirPath), { recursive: true });
+
+        transition('cloning_repo', { message: 'Clonando repositorio do MyZap...', dirPath });
+
         reportProgress('Baixando projeto MyZap (git clone)...', 'clone_repo', {
             percent: 35,
             dirPath
@@ -107,6 +113,8 @@ async function clonarRepositorio(dirPath, envContent, reinstall = false, options
         if (!clonou) {
             return { status: 'error', message: 'Erro ao clonar o repositorio. Verifique se a pasta ja existe.' };
         }
+
+        transition('installing_dependencies', { message: 'Instalando dependencias do MyZap...', dirPath });
 
         reportProgress('Instalando dependencias do MyZap (pnpm install)...', 'install_dependencies', {
             percent: 55,
@@ -158,6 +166,7 @@ async function clonarRepositorio(dirPath, envContent, reinstall = false, options
             message: 'MyZap instalado, configurado e iniciado com sucesso!'
         };
     } catch (err) {
+        transition('error', { message: err?.message || String(err), phase: 'clone_install' });
         logError('Erro critico no processo de instalacao', { metadata: { error: err } });
         return { status: 'error', message: `Erro: ${err.message}` };
     }

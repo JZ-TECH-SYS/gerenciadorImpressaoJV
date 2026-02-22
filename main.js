@@ -15,6 +15,7 @@ const { info, warn, error, abrirPastaLogs, criarArquivoAjuda } = require('./core
 const { startWatcher, stopWatcher } = require('./core/api/ticketWatcher');
 const { startWhatsappQueueWatcher, stopWhatsappQueueWatcher } = require('./core/api/whatsappQueueWatcher');
 const { startMyzapStatusWatcher, stopMyzapStatusWatcher, enviarStatusMyZap } = require('./core/api/myzapStatusWatcher');
+const { startTokenSyncWatcher, stopTokenSyncWatcher } = require('./core/api/tokenSyncWatcher');
 const { createSettings } = require('./core/windows/settings');
 const { openLogViewer } = require('./core/windows/logViewer');
 const { createTestPrint } = require('./core/windows/testPrint');
@@ -27,6 +28,8 @@ const { attachAutoUpdaterHandlers, checkForUpdates } = require('./core/updater')
 const { ensureMyZapReadyAndStart, refreshRemoteConfigAndSyncIa } = require('./core/myzap/autoConfig');
 const { clearProgress, getCurrentProgress } = require('./core/myzap/progress');
 const { killProcessesOnPort } = require('./core/myzap/processUtils');
+const { killMyZapProcess } = require('./core/myzap/iniciarMyZap');
+const deleteSession = require('./core/myzap/api/deleteSession');
 const { info: myzapInfo, warn: myzapWarn, error: myzapError } = require('./core/myzap/myzapLogger');
 
 /* ---------- store ---------- */
@@ -67,10 +70,11 @@ function applyMyZapRuntimeByMode() {
   if (isMyZapModoLocal()) {
     scheduleQueueAutoStart();
     startMyzapStatusWatcher();
+    startTokenSyncWatcher();
     return;
   }
 
-  // Modo web: matar processo MyZap + porta local
+  // Modo web: encerrar sessao, matar processo MyZap + porta local
   if (queueAutoStartTimer) {
     clearInterval(queueAutoStartTimer);
     queueAutoStartTimer = null;
@@ -78,10 +82,25 @@ function applyMyZapRuntimeByMode() {
 
   stopWhatsappQueueWatcher();
   stopMyzapStatusWatcher();
+  stopTokenSyncWatcher();
+
+  // Encerrar sessao do WhatsApp antes de matar o processo
+  deleteSession().catch((err) => {
+    myzapWarn('Falha ao encerrar sessao WhatsApp na troca para modo web', {
+      metadata: { error: err?.message || String(err) }
+    });
+  });
+
+  // Matar child process rastreado
+  try {
+    killMyZapProcess();
+  } catch (_e) { /* melhor esforco */ }
 
   try {
     killProcessesOnPort(5555);
   } catch (_e) { /* melhor esforco */ }
+
+  toast('MyZap alterado para modo web/online. Rotinas locais desativadas.');
 
   myzapInfo('MyZap em modo web/online. Rotinas locais e processo MyZap foram desativados.', {
     metadata: { modo: getModoIntegracaoMyZap() }
@@ -133,6 +152,12 @@ async function autoStartMyZap() {
   if (!hasValidConfigMyZap()) {
     myzapWarn('MyZap: configuracoes base ausentes (apiUrl/apiToken/idempresa).');
     toast('Configure o MyZap pelo ícone na bandeja');
+    return;
+  }
+
+  // Se usuario removeu a instalacao local explicitamente, nao re-instalar automaticamente
+  if (store.get('myzap_userRemovedLocal') === true) {
+    myzapInfo('MyZap: auto-start ignorado (usuario removeu instalacao local previamente).');
     return;
   }
 
@@ -319,6 +344,7 @@ app.on('before-quit', () => {
   }
   stopWhatsappQueueWatcher();
   stopMyzapStatusWatcher();
+  stopTokenSyncWatcher();
 });
 
 /* =========================================================

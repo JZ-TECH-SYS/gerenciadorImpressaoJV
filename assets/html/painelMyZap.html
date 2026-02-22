@@ -214,7 +214,7 @@
 
                         <div id="myzap-runtime-info" class="alert alert-secondary mt-3 mb-0"></div>
 
-                        <div class="mt-4 d-flex gap-2">
+                        <div class="mt-4 d-flex gap-2 flex-wrap">
 
                             <button id="btn-start" class="btn btn-success" onclick="iniciarMyZapServico()">
                                 Iniciar MyZap
@@ -246,6 +246,25 @@
                                 Atualizar Status
                             </button>
 
+                            <button id="btn-remove-all" class="btn btn-outline-danger" onclick="removerTudoMyZap()">
+                                🗑 Remover Tudo
+                            </button>
+
+                        </div>
+
+                        <!-- FEEDBACK DO RESET -->
+                        <div id="reset-feedback-box" class="d-none mt-3">
+                            <div id="reset-feedback-alert" class="alert" role="alert">
+                                <div class="d-flex align-items-center gap-2 mb-2">
+                                    <span id="reset-feedback-icon"></span>
+                                    <strong id="reset-feedback-title">Processando...</strong>
+                                </div>
+                                <div id="reset-feedback-message"></div>
+                                <div id="reset-feedback-details" class="mt-2 small text-muted d-none"></div>
+                            </div>
+                            <button id="btn-install-again" class="btn btn-primary d-none" onclick="instalarNovamente()">
+                                🔄 Instalar Novamente
+                            </button>
                         </div>
                     </div>
                     <!-- ===================== -->

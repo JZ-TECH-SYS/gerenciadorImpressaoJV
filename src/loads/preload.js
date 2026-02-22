@@ -21,5 +21,8 @@ contextBridge.exposeInMainWorld('api', {
   getQueueWatcherStatus: () => ipcRenderer.invoke('myzap:getQueueWatcherStatus'),
   getQueuePendentes: () => ipcRenderer.invoke('myzap:getQueuePendentes'),
   saveEnvSecrets: (secrets) => ipcRenderer.invoke('myzap:saveEnvSecrets', secrets),
-  readEnvSecrets: () => ipcRenderer.invoke('myzap:readEnvSecrets')
+  readEnvSecrets: () => ipcRenderer.invoke('myzap:readEnvSecrets'),
+  resetEnvironment: (options) => ipcRenderer.invoke('myzap:resetEnvironment', options),
+  getStateSnapshot: () => ipcRenderer.invoke('myzap:getStateSnapshot'),
+  clearUserRemovedFlag: () => ipcRenderer.invoke('myzap:clearUserRemovedFlag')
 });
