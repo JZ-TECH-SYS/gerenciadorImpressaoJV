@@ -88,10 +88,8 @@ async function updateIaConfig(rawInput) {
             session_name: sessionName || sessionKey,
             mensagem_padrao: mensagemPadrao,
             api_url: null,
-            promptid: promptId || null,
             idprompt: promptId || null,
-            ia_ativa: iaAtiva ? 1 : 0,
-            iaativa: iaAtiva ? 1 : 0
+            ia_ativa: iaAtiva ? 1 : 0
         };
 
         const res = await fetch(`${api}admin/ia-manager/update-config`, {
