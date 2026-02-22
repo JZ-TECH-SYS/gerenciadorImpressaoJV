@@ -105,7 +105,7 @@ function killPid(pid) {
 
     try {
         if (os.platform() === 'win32') {
-            execSync(`taskkill /F /PID ${pid}`, { stdio: ['ignore', 'pipe', 'pipe'] });
+            execSync(`taskkill /T /F /PID ${pid}`, { stdio: ['ignore', 'pipe', 'pipe'] });
         } else {
             execSync(`kill -9 ${pid}`, { stdio: ['ignore', 'pipe', 'pipe'] });
         }

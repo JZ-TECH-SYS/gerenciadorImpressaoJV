@@ -12,6 +12,9 @@ let ultimaExecucaoEm = null;
 let ultimoErro = null;
 let ultimoLote = 0;
 let ultimosPendentes = [];
+let consecutiveSkips = 0;
+const MAX_CONSECUTIVE_SKIPS = 10;
+const SKIP_LOG_EVERY = 5;
 
 function normalizeBaseUrl(url) {
   if (!url || typeof url !== 'string') return '';
@@ -188,6 +191,44 @@ async function processarFilaUmaRodada() {
   processando = true;
 
   try {
+    // Validar MyZap disponivel antes de buscar pendentes
+    const configAtual = await obterCredenciaisAtivas();
+    if (!configAtual.sessionKey || !configAtual.sessionToken) {
+      consecutiveSkips++;
+      if (consecutiveSkips % SKIP_LOG_EVERY === 1) {
+        warn(`[FilaMyZap] Credenciais ausentes (skip #${consecutiveSkips})`, {
+          metadata: { consecutiveSkips }
+        });
+      }
+      if (consecutiveSkips >= MAX_CONSECUTIVE_SKIPS) {
+        warn(`[FilaMyZap] Auto-stop: ${MAX_CONSECUTIVE_SKIPS} skips consecutivos`, {
+          metadata: { area: 'whatsappQueueWatcher' }
+        });
+        stopWhatsappQueueWatcher();
+      }
+      return;
+    }
+
+    const myzapOk = await validarDisponibilidadeMyZap(configAtual.sessionKey, configAtual.sessionToken);
+    if (!myzapOk) {
+      consecutiveSkips++;
+      if (consecutiveSkips % SKIP_LOG_EVERY === 1) {
+        warn(`[FilaMyZap] MyZap indisponivel (skip #${consecutiveSkips})`, {
+          metadata: { consecutiveSkips }
+        });
+      }
+      if (consecutiveSkips >= MAX_CONSECUTIVE_SKIPS) {
+        warn(`[FilaMyZap] Auto-stop: ${MAX_CONSECUTIVE_SKIPS} skips consecutivos (MyZap down)`, {
+          metadata: { area: 'whatsappQueueWatcher' }
+        });
+        stopWhatsappQueueWatcher();
+      }
+      return;
+    }
+
+    // MyZap ok, reset skip counter
+    consecutiveSkips = 0;
+
     const pendentes = await listarPendentesMyZap();
     ultimosPendentes = Array.isArray(pendentes) ? pendentes : [];
     const lote = pendentes.filter((m) => String(m?.status || '').toLowerCase() !== 'enviado');

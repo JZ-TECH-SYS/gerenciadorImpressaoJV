@@ -17,7 +17,9 @@ const updateIaConfig = require('./api/updateIaConfig');
 const store = new Store();
 const REMOTE_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const LAST_REMOTE_SYNC_KEY = 'myzap_lastRemoteConfigSyncAt';
+const ENSURE_STALE_TIMEOUT_MS = 2 * 60 * 1000;
 let ensureInFlight = null;
+let ensureInFlightStartedAt = 0;
 
 function normalizeBaseUrl(url) {
     if (!url || typeof url !== 'string') return '';
@@ -626,32 +628,58 @@ async function prepareAutoConfig(options = {}) {
 }
 
 async function syncIaSettingsInMyZap(preparedData = {}) {
-    const result = await updateIaConfig({
-        mensagemPadrao: store.get('myzap_mensagemPadrao') || '',
-        promptId: preparedData?.myzap_promptId ?? store.get('myzap_promptId'),
-        iaAtiva: preparedData?.myzap_iaAtiva ?? store.get('myzap_iaAtiva'),
-        token: preparedData?.myzap_apiToken ?? store.get('myzap_apiToken'),
-        sessionKey: preparedData?.myzap_sessionKey ?? store.get('myzap_sessionKey'),
-        sessionName: preparedData?.myzap_sessionName ?? store.get('myzap_sessionName')
-    });
+    const maxRetries = 2;
+    const retryDelayMs = 3000;
+    let lastResult = null;
 
-    if (result?.status !== 'success') {
-        warn('Falha ao sincronizar prompt/ia_ativa no MyZap local', {
-            metadata: { result }
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        lastResult = await updateIaConfig({
+            mensagemPadrao: store.get('myzap_mensagemPadrao') || '',
+            promptId: preparedData?.myzap_promptId ?? store.get('myzap_promptId'),
+            iaAtiva: preparedData?.myzap_iaAtiva ?? store.get('myzap_iaAtiva'),
+            token: preparedData?.myzap_apiToken ?? store.get('myzap_apiToken'),
+            sessionKey: preparedData?.myzap_sessionKey ?? store.get('myzap_sessionKey'),
+            sessionName: preparedData?.myzap_sessionName ?? store.get('myzap_sessionName')
         });
+
+        if (lastResult?.status === 'success') {
+            return lastResult;
+        }
+
+        if (attempt < maxRetries) {
+            warn(`syncIaSettingsInMyZap: tentativa ${attempt} falhou, retentando em ${retryDelayMs}ms...`, {
+                metadata: { attempt, result: lastResult }
+            });
+            await new Promise((r) => setTimeout(r, retryDelayMs));
+        }
     }
 
-    return result;
+    warn('Falha ao sincronizar prompt/ia_ativa no MyZap local apos retries', {
+        metadata: { result: lastResult, maxRetries }
+    });
+
+    return lastResult;
 }
 
 async function ensureMyZapReadyAndStart(options = {}) {
     if (ensureInFlight) {
-        info('MyZap start: operacao ja em andamento, aguardando mesma execucao', {
-            metadata: { area: 'autoConfig', options }
-        });
-        return ensureInFlight;
+        // Detecta operacao travada (stale) apos 2 minutos
+        const elapsed = Date.now() - ensureInFlightStartedAt;
+        if (elapsed > ENSURE_STALE_TIMEOUT_MS) {
+            warn('ensureMyZapReadyAndStart: operacao anterior considerada stale, resetando', {
+                metadata: { area: 'autoConfig', elapsedMs: elapsed }
+            });
+            ensureInFlight = null;
+            ensureInFlightStartedAt = 0;
+        } else {
+            info('MyZap start: operacao ja em andamento, aguardando mesma execucao', {
+                metadata: { area: 'autoConfig', options, elapsedMs: elapsed }
+            });
+            return ensureInFlight;
+        }
     }
 
+    ensureInFlightStartedAt = Date.now();
     ensureInFlight = (async () => {
         startProgress('Iniciando sincronizacao do MyZap...', 'start', { options });
 
@@ -769,12 +797,21 @@ async function ensureMyZapReadyAndStart(options = {}) {
         };
     })().finally(() => {
         ensureInFlight = null;
+        ensureInFlightStartedAt = 0;
     });
 
     return ensureInFlight;
 }
 
 async function refreshRemoteConfigAndSyncIa() {
+    // Se o usuario removeu a instalacao local, nao repopular store
+    if (store.get('myzap_userRemovedLocal') === true) {
+        info('refreshRemoteConfigAndSyncIa: ignorado (myzap_userRemovedLocal=true)', {
+            metadata: { area: 'autoConfig' }
+        });
+        return { status: 'skipped', message: 'Ignorado: usuario removeu instalacao local.' };
+    }
+
     const prep = await prepareAutoConfig({ forceRemote: true });
     if (prep.status !== 'success') {
         warn('MyZap refresh: falha ao atualizar configuracao remota', {

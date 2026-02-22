@@ -25,6 +25,8 @@ const { registerPrinterHandlers } = require('./core/ipc/printers');
 const { registerMyZapHandlers } = require('./core/ipc/myzap');
 const { attachAutoUpdaterHandlers, checkForUpdates } = require('./core/updater');
 const { ensureMyZapReadyAndStart, refreshRemoteConfigAndSyncIa } = require('./core/myzap/autoConfig');
+const { clearProgress, getCurrentProgress } = require('./core/myzap/progress');
+const { killProcessesOnPort } = require('./core/myzap/processUtils');
 const { info: myzapInfo, warn: myzapWarn, error: myzapError } = require('./core/myzap/myzapLogger');
 
 /* ---------- store ---------- */
@@ -68,6 +70,7 @@ function applyMyZapRuntimeByMode() {
     return;
   }
 
+  // Modo web: matar processo MyZap + porta local
   if (queueAutoStartTimer) {
     clearInterval(queueAutoStartTimer);
     queueAutoStartTimer = null;
@@ -75,7 +78,12 @@ function applyMyZapRuntimeByMode() {
 
   stopWhatsappQueueWatcher();
   stopMyzapStatusWatcher();
-  myzapInfo('MyZap em modo web/online. Rotinas locais foram desativadas.', {
+
+  try {
+    killProcessesOnPort(5555);
+  } catch (_e) { /* melhor esforco */ }
+
+  myzapInfo('MyZap em modo web/online. Rotinas locais e processo MyZap foram desativados.', {
     metadata: { modo: getModoIntegracaoMyZap() }
   });
 }
@@ -275,6 +283,17 @@ app.whenReady().then(() => {
       metadata: { trigger: 'inicializacao' }
     });
   }
+
+  // Limpa progresso stale na inicializacao
+  try {
+    const progress = getCurrentProgress();
+    if (progress && progress.active) {
+      myzapWarn('Progresso stale detectado na inicializacao, limpando', {
+        metadata: { progress }
+      });
+      clearProgress();
+    }
+  } catch (_e) { /* melhor esforco */ }
 
   autoStartMyZap();
   scheduleMyZapConfigRefresh();

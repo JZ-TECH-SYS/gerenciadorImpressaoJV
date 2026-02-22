@@ -1,4 +1,6 @@
 const { spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 const { error: logError, info } = require('./myzapLogger');
 const { isPortInUse, getPnpmCommand } = require('./processUtils');
 
@@ -67,7 +69,20 @@ async function iniciarMyZap(dirPath, options = {}) {
             percent: 90,
             dirPath
         });
-        await executarComando('git', ['pull', 'origin', 'main'], dirPath);
+        const gitDir = path.join(dirPath, '.git');
+        if (fs.existsSync(gitDir)) {
+            try {
+                await executarComando('git', ['pull', 'origin', 'main'], dirPath);
+            } catch (gitErr) {
+                info('git pull falhou (nao-critico, continuando)', {
+                    metadata: { area: 'iniciarMyZap', error: gitErr?.message || String(gitErr) }
+                });
+            }
+        } else {
+            info('Diretorio .git nao encontrado, pulando git pull', {
+                metadata: { area: 'iniciarMyZap', dirPath }
+            });
+        }
 
         const pnpmRunner = await getPnpmCommand();
         if (!pnpmRunner) {

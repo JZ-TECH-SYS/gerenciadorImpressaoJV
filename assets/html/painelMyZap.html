@@ -253,44 +253,31 @@
                     <!-- ===================== -->
                     <div class="tab-pane fade" id="config" role="tabpanel">
 
+                        <p class="text-muted mb-3">
+                            As configurações principais (Session Key, diretório, modo, etc.) são sincronizadas automaticamente da API ClickExpress.
+                            Abaixo você pode editar apenas os segredos que ficam no arquivo <code>.env</code> do MyZap local.
+                        </p>
+
                         <form id="myzap-config-form">
 
                             <div class="mb-3">
-                                <label class="form-label">Diretório do MyZap</label>
-                                <input type="text" class="form-control" id="input-path"
-                                    placeholder="C:/JzTech/projects/myzap" />
+                                <label class="form-label">TOKEN</label>
+                                <input type="text" class="form-control" id="input-env-token"
+                                    placeholder="Token de autenticação do MyZap" />
                             </div>
 
                             <div class="mb-3">
-                                <label class="form-label">Session Key</label>
-                                <input type="text" class="form-control" id="input-sessionkey"
-                                    placeholder="Informe a SessionKey do MyZap" />
+                                <label class="form-label">OPENAI_API_KEY</label>
+                                <input type="text" class="form-control" id="input-env-openai"
+                                    placeholder="Chave da API OpenAI" />
                             </div>
 
                             <div class="mb-4">
-                                <label class="form-label">API Token</label>
-                                <input type="text" class="form-control" id="input-apitoken"
-                                    placeholder="Token de autenticação, se aplicável" />
+                                <label class="form-label">EMAIL_TOKEN</label>
+                                <input type="text" class="form-control" id="input-env-emailtoken"
+                                    placeholder="Token do serviço de email" />
                             </div>
 
-                            <div class="mb-4">
-                                <label class="form-label">Conteúdo do .env</label>
-                                <textarea class="form-control" id="input-env" rows="6"
-                                    placeholder="Cole o conteúdo do arquivo .env aqui"></textarea>
-                            </div>
-                            <div class="mb-4">
-                                <h6 class="mb-3 fw-semibold">ClickExpress</h6>
-                                <div class="mb-3">
-                                    <label class="form-label">URL API ClickExpress</label>
-                                    <input type="text" class="form-control" id="input-clickexpress-apiurl"
-                                        placeholder="https://sua-api-clickexpress.com/" />
-                                </div>
-                                <div>
-                                    <label class="form-label">Token ClickExpress (Fila)</label>
-                                    <input type="text" class="form-control" id="input-clickexpress-token"
-                                        placeholder="Bearer fixo para consultar/atualizar fila" />
-                                </div>
-                            </div>
                             <div class="d-flex gap-2">
                                 <button type="submit" id="btn-save-config" class="btn btn-success">
                                     Salvar Configurações

@@ -1,3 +1,6 @@
+const fs = require('fs');
+const path = require('path');
+const Store = require('electron-store');
 const { warn, info } = require('../myzap/myzapLogger');
 const clonarRepositorio = require('../myzap/clonarRepositorio');
 const verificarDiretorio = require('../myzap/verificarDiretorio');
@@ -17,6 +20,34 @@ const {
     stopWhatsappQueueWatcher,
     getWhatsappQueueWatcherStatus
 } = require('../api/whatsappQueueWatcher');
+
+const envStore = new Store();
+
+function isSetupInProgress() {
+    const progress = envStore.get('myzap_progress');
+    return progress && progress.active === true;
+}
+
+function parseEnvSecrets(envContent) {
+    const secrets = { TOKEN: '', OPENAI_API_KEY: '', EMAIL_TOKEN: '' };
+    if (!envContent) return secrets;
+    const lines = String(envContent).split(/\r?\n/);
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('#') || !trimmed.includes('=')) continue;
+        const eqIdx = trimmed.indexOf('=');
+        const key = trimmed.slice(0, eqIdx).trim();
+        let val = trimmed.slice(eqIdx + 1).trim();
+        // Remove aspas
+        if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+            val = val.slice(1, -1);
+        }
+        if (key === 'TOKEN' || key === 'OPENAI_API_KEY' || key === 'EMAIL_TOKEN') {
+            secrets[key] = val;
+        }
+    }
+    return secrets;
+}
 
 function registerMyZapHandlers(ipcMain) {
     info('IPC MyZap handlers registrados', {
@@ -39,6 +70,10 @@ function registerMyZapHandlers(ipcMain) {
     });
 
     ipcMain.handle('myzap:cloneRepository', async (event, dirPath, envContent, reinstall = false) => {
+        if (isSetupInProgress()) {
+            warn('Clone bloqueado: setup ja em andamento', { metadata: { area: 'ipcMyzap' } });
+            return { status: 'error', message: 'Uma instalacao/atualizacao ja esta em andamento. Aguarde.' };
+        }
         try {
             const result = await clonarRepositorio(dirPath, envContent, reinstall);
             return result;
@@ -236,6 +271,57 @@ function registerMyZapHandlers(ipcMain) {
                 metadata: { error }
             });
             return [];
+        }
+    });
+
+    // ── .env secrets handlers ──────────────────────────────
+    ipcMain.handle('myzap:saveEnvSecrets', async (_event, secrets) => {
+        try {
+            const { TOKEN = '', OPENAI_API_KEY = '', EMAIL_TOKEN = '' } = secrets || {};
+            const myzapDir = String(envStore.get('myzap_diretorio') || '').trim();
+            const templatePath = path.join(__dirname, '..', 'myzap', 'configs', '.env');
+            const targets = [];
+            if (myzapDir && fs.existsSync(path.join(myzapDir, '.env'))) {
+                targets.push(path.join(myzapDir, '.env'));
+            }
+            if (fs.existsSync(templatePath)) {
+                targets.push(templatePath);
+            }
+            if (targets.length === 0) {
+                return { status: 'error', message: 'Nenhum arquivo .env encontrado para salvar.' };
+            }
+            for (const filePath of targets) {
+                let content = fs.readFileSync(filePath, 'utf8');
+                content = content.replace(/^TOKEN=.*$/m, `TOKEN="${TOKEN}"`);
+                content = content.replace(/^OPENAI_API_KEY=.*$/m, `OPENAI_API_KEY="${OPENAI_API_KEY}"`);
+                content = content.replace(/^EMAIL_TOKEN=.*$/m, `EMAIL_TOKEN="${EMAIL_TOKEN}"`);
+                fs.writeFileSync(filePath, content, 'utf8');
+            }
+            info('Segredos .env salvos com sucesso', {
+                metadata: { area: 'ipcMyzap', targets: targets.length }
+            });
+            return { status: 'success', message: `Segredos salvos em ${targets.length} arquivo(s).` };
+        } catch (error) {
+            warn('Falha ao salvar segredos .env via IPC', { metadata: { error } });
+            return { status: 'error', message: error.message || String(error) };
+        }
+    });
+
+    ipcMain.handle('myzap:readEnvSecrets', async () => {
+        try {
+            const myzapDir = String(envStore.get('myzap_diretorio') || '').trim();
+            const localEnv = myzapDir ? path.join(myzapDir, '.env') : '';
+            const templateEnv = path.join(__dirname, '..', 'myzap', 'configs', '.env');
+            let envContent = '';
+            if (localEnv && fs.existsSync(localEnv)) {
+                envContent = fs.readFileSync(localEnv, 'utf8');
+            } else if (fs.existsSync(templateEnv)) {
+                envContent = fs.readFileSync(templateEnv, 'utf8');
+            }
+            return parseEnvSecrets(envContent);
+        } catch (error) {
+            warn('Falha ao ler segredos .env via IPC', { metadata: { error } });
+            return { TOKEN: '', OPENAI_API_KEY: '', EMAIL_TOKEN: '' };
         }
     });
 }

@@ -508,13 +508,18 @@ async function loadConfigs() {
       }, STATUS_WATCH_INTERVAL_MS);
     }
 
-    if (document.getElementById('input-path')) document.getElementById('input-path').value = myzap_diretorio;
-    if (document.getElementById('input-sessionkey')) document.getElementById('input-sessionkey').value = myzap_sessionKey;
-    if (document.getElementById('input-apitoken')) document.getElementById('input-apitoken').value = myzap_apiToken;
-    if (document.getElementById('input-env')) document.getElementById('input-env').value = myzap_envContent;
     if (document.getElementById('myzap-mensagem-padrao')) document.getElementById('myzap-mensagem-padrao').value = myzap_mensagemPadrao;
-    if (document.getElementById('input-clickexpress-apiurl')) document.getElementById('input-clickexpress-apiurl').value = clickexpress_apiUrl;
-    if (document.getElementById('input-clickexpress-token')) document.getElementById('input-clickexpress-token').value = clickexpress_queueToken;
+
+    // Carrega segredos do .env para a aba de configurações
+    try {
+      const envSecrets = await window.api.readEnvSecrets();
+      if (document.getElementById('input-env-token')) document.getElementById('input-env-token').value = envSecrets.TOKEN || '';
+      if (document.getElementById('input-env-openai')) document.getElementById('input-env-openai').value = envSecrets.OPENAI_API_KEY || '';
+      if (document.getElementById('input-env-emailtoken')) document.getElementById('input-env-emailtoken').value = envSecrets.EMAIL_TOKEN || '';
+    } catch (envErr) {
+      console.warn('Falha ao carregar segredos do .env:', envErr?.message || envErr);
+    }
+
     await refreshMyZapProgress();
   } catch (e) {
     alert('Erro ao carregar configura??es: ' + (e?.message || e));
@@ -838,9 +843,30 @@ async function salvarMensagemPadrao() {
 
 const cfg_myzap = document.getElementById('myzap-config-form');
 
-cfg_myzap.onsubmit = (e) => {
+cfg_myzap.onsubmit = async (e) => {
   e.preventDefault();
-  alert('As configurações do MyZap agora são automáticas. Use o botão "Iniciar MyZap".');
+  const btnSave = document.getElementById('btn-save-config');
+  const oldText = btnSave.textContent;
+  btnSave.disabled = true;
+  btnSave.textContent = 'Salvando...';
+  try {
+    const secrets = {
+      TOKEN: (document.getElementById('input-env-token')?.value || '').trim(),
+      OPENAI_API_KEY: (document.getElementById('input-env-openai')?.value || '').trim(),
+      EMAIL_TOKEN: (document.getElementById('input-env-emailtoken')?.value || '').trim()
+    };
+    const result = await window.api.saveEnvSecrets(secrets);
+    if (result?.status === 'success') {
+      alert('Segredos salvos com sucesso no .env do MyZap.');
+    } else {
+      alert('Erro ao salvar: ' + (result?.message || 'desconhecido'));
+    }
+  } catch (err) {
+    alert('Erro ao salvar segredos: ' + (err?.message || err));
+  } finally {
+    btnSave.disabled = false;
+    btnSave.textContent = oldText;
+  }
 };
 
 function atualizaStatus() {
