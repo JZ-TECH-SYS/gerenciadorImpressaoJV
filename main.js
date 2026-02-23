@@ -1,4 +1,11 @@
 /* ─── Main process ─────────────────────────────────────────────────── */
+
+// Corrige o PATH no macOS/Linux — o Electron nao herda o PATH do shell,
+// entao git, node, pnpm nao seriam encontrados sem esta chamada.
+if (process.platform !== 'win32') {
+  try { require('fix-path')(); } catch (_e) { /* melhor esforco */ }
+}
+
 const {
   app,
   Menu,
