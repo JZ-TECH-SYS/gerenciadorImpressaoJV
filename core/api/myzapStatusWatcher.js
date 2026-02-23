@@ -9,6 +9,20 @@ let ativo = false;
 let timer = null;
 let ultimoErro = null;
 let ultimaExecucaoEm = null;
+let ultimoStatus = 'desconhecido';
+let trayCallback = null;
+
+function setTrayCallback(fn) {
+  trayCallback = typeof fn === 'function' ? fn : null;
+}
+
+function getMyzapConnectionStatus() {
+  return ultimoStatus;
+}
+
+function isMyzapWatcherAtivo() {
+  return ativo;
+}
 
 function normalizeBaseUrl(url) {
   if (!url || typeof url !== 'string') return '';
@@ -67,6 +81,11 @@ async function enviarStatusMyZap() {
 
   const realStatusPayload = await verifyRealStatus();
   const status = isMyZapConnected(realStatusPayload) ? 'ativo' : 'inativo';
+
+  if (status !== ultimoStatus) {
+    ultimoStatus = status;
+    trayCallback?.();
+  }
 
   info('[StatusMyZap] Status resolvido', {
     metadata: { area: 'myzapStatusWatcher', status, realStatus: realStatusPayload?.realStatus }
@@ -149,6 +168,13 @@ async function startMyzapStatusWatcher() {
   return { status: 'success', message: 'Watcher de status passivo do MyZap iniciado com sucesso.' };
 }
 
+function resetUltimoStatus() {
+  if (ultimoStatus !== 'desconhecido') {
+    ultimoStatus = 'desconhecido';
+    trayCallback?.();
+  }
+}
+
 function stopMyzapStatusWatcher() {
   if (!ativo && !timer) {
     return { status: 'success', message: 'Watcher de status passivo do MyZap ja estava parado.' };
@@ -160,6 +186,7 @@ function stopMyzapStatusWatcher() {
   }
 
   ativo = false;
+  resetUltimoStatus();
 
   info('Watcher passivo de status do MyZap parado', {
     metadata: { area: 'myzapStatusWatcher' }
@@ -181,5 +208,8 @@ module.exports = {
   startMyzapStatusWatcher,
   stopMyzapStatusWatcher,
   getMyzapStatusWatcherInfo,
+  getMyzapConnectionStatus,
+  isMyzapWatcherAtivo,
+  setTrayCallback,
   enviarStatusMyZap
 };

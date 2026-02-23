@@ -21,7 +21,7 @@ const Store = require('electron-store');
 const { info, warn, error, abrirPastaLogs, criarArquivoAjuda } = require('./core/utils/logger');
 const { startWatcher, stopWatcher } = require('./core/api/ticketWatcher');
 const { startWhatsappQueueWatcher, stopWhatsappQueueWatcher } = require('./core/api/whatsappQueueWatcher');
-const { startMyzapStatusWatcher, stopMyzapStatusWatcher, enviarStatusMyZap } = require('./core/api/myzapStatusWatcher');
+const { startMyzapStatusWatcher, stopMyzapStatusWatcher, enviarStatusMyZap, isMyzapWatcherAtivo } = require('./core/api/myzapStatusWatcher');
 const { startTokenSyncWatcher, stopTokenSyncWatcher } = require('./core/api/tokenSyncWatcher');
 const { createSettings } = require('./core/windows/settings');
 const { openLogViewer } = require('./core/windows/logViewer');
@@ -116,6 +116,27 @@ function applyMyZapRuntimeByMode() {
 
 function rebuildTrayMenu() {
   trayManager.rebuildMenu();
+}
+
+function toggleMyzap() {
+  if (isMyzapWatcherAtivo()) {
+    stopWhatsappQueueWatcher();
+    stopMyzapStatusWatcher();
+    toast('Serviço MyZap pausado');
+    info('Serviço MyZap pausado via toggle', {
+      metadata: { status: 'parado' }
+    });
+  } else {
+    startMyzapStatusWatcher();
+    if (isMyZapModoLocal()) {
+      tryStartQueueWatcherAuto();
+    }
+    toast('Serviço MyZap iniciado');
+    info('Serviço MyZap iniciado via toggle', {
+      metadata: { status: 'iniciado' }
+    });
+  }
+  rebuildTrayMenu();
 }
 
 function handleUpdateCheck() {
@@ -284,6 +305,7 @@ app.whenReady().then(() => {
     {
       createSettings,
       togglePrint,
+      toggleMyzap,
       createTestPrint,
       openLogViewer,
       abrirPastaLogs,
@@ -293,7 +315,8 @@ app.whenReady().then(() => {
       createFilaMyZap
     },
     () => printing,
-    app.getVersion()
+    app.getVersion(),
+    isMyzapWatcherAtivo
   );
 
   // Cria menu inicial (printing ainda false)

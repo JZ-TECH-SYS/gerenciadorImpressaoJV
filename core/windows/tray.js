@@ -3,12 +3,14 @@ const { Menu, Tray } = require('electron');
 let trayInstance = null;
 let actions = null;
 let getPrinting = () => false;
+let getMyzapStatus = () => 'desconhecido';
 let appVersion = '?.?.?';
 
-function buildMenuTemplate(printing, callbacks) {
+function buildMenuTemplate(printing, myzapAtivo, callbacks) {
   const {
     createSettings,
     togglePrint,
+    toggleMyzap,
     createTestPrint,
     openLogViewer,
     abrirPastaLogs,
@@ -19,42 +21,64 @@ function buildMenuTemplate(printing, callbacks) {
   } = callbacks;
 
   return [
-    { label: '⚙️ Configurações', click: createSettings },
+    // ── Cabeçalho ──────────────────────────────────────
+    { label: '🖨️  JV-Printer', enabled: false },
+    { label: `      v${appVersion}`, enabled: false },
+    { type: 'separator' },
+
+    // ── Impressão ──────────────────────────────────────
+    { label: '── Impressão ──', enabled: false },
     {
-      label: printing ? '⛔ Parar impressão' : '▶️ Iniciar impressão',
+      label: printing
+        ? '🟢  Impressão ativa'
+        : '🔴  Impressão pausada',
       click: togglePrint
     },
+    { label: '⚙️   Configurações', click: createSettings },
+    { label: '🖨️   Teste de impressão', click: createTestPrint },
     { type: 'separator' },
+
+    // ── WhatsApp ───────────────────────────────────────
+    { label: '── WhatsApp ──', enabled: false },
     {
-      label: '💬 WhatsApp',
-      enabled: false
+      label: myzapAtivo
+        ? '🟢  MyZap ativo'
+        : '🔴  MyZap pausado',
+      click: toggleMyzap
     },
-    { label: '🔗 Painel MyZap', click: createPainelMyZap },
-    { label: '📬 Fila MyZap', click: createFilaMyZap },
+    { label: '💬  Painel MyZap', click: createPainelMyZap },
+    { label: '📬  Fila de mensagens', click: createFilaMyZap },
     { type: 'separator' },
-    { label: '🖨️ Testar Impressão', click: createTestPrint },
-    { label: '📄 Ver Logs', click: openLogViewer },
-    { label: '📁 Abrir Pasta de Logs', click: abrirPastaLogs },
-    { label: '❓ Ajuda (Problemas)', click: abrirAjuda },
-    { type: 'separator' },
+
+    // ── Sistema ────────────────────────────────────────
+    { label: '── Sistema ──', enabled: false },
+    { label: '📋  Ver logs', click: openLogViewer },
+    { label: '📁  Pasta de logs', click: abrirPastaLogs },
+    { label: '❓  Ajuda / Problemas', click: abrirAjuda },
     {
-      label: `Versão ${appVersion}`,
+      label: '🔄  Verificar atualização',
       click: () => checkUpdates?.(),
       enabled: !!checkUpdates
     },
-    { label: '🚪 Sair', role: 'quit' }
+    { type: 'separator' },
+
+    // ── Sair ───────────────────────────────────────────
+    { label: '🚪  Sair', role: 'quit' }
   ];
 }
 
-function init(iconPath, callbackSet, printingState, version = '?.?.?') {
+function init(iconPath, callbackSet, printingState, version = '?.?.?', myzapStatusState) {
   actions = callbackSet;
   appVersion = version;
   if (typeof printingState === 'function') {
     getPrinting = printingState;
   }
+  if (typeof myzapStatusState === 'function') {
+    getMyzapStatus = myzapStatusState;
+  }
 
   trayInstance = new Tray(iconPath);
-  trayInstance.setToolTip('JV-Printer');
+  trayInstance.setToolTip(`JV-Printer  v${version}`);
   rebuildMenu();
   return trayInstance;
 }
@@ -64,7 +88,7 @@ function rebuildMenu() {
     return;
   }
 
-  const menu = Menu.buildFromTemplate(buildMenuTemplate(getPrinting(), actions));
+  const menu = Menu.buildFromTemplate(buildMenuTemplate(getPrinting(), getMyzapStatus(), actions));
   trayInstance.setContextMenu(menu);
 }
 
