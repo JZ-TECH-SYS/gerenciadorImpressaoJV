@@ -20,7 +20,8 @@ const {
     getUltimosPendentesMyZap,
     startWhatsappQueueWatcher,
     stopWhatsappQueueWatcher,
-    getWhatsappQueueWatcherStatus
+    getWhatsappQueueWatcherStatus,
+    processarFilaUmaRodada
 } = require('../api/whatsappQueueWatcher');
 
 const envStore = new Store();
@@ -270,6 +271,48 @@ function registerMyZapHandlers(ipcMain) {
             return getUltimosPendentesMyZap();
         } catch (error) {
             warn('Falha ao obter pendentes da fila MyZap via IPC', {
+                metadata: { error }
+            });
+            return [];
+        }
+    });
+
+    ipcMain.handle('myzap:forceQueueCycle', async () => {
+        try {
+            info('IPC myzap:forceQueueCycle recebido (busca manual)', {
+                metadata: { area: 'ipcMyzap' }
+            });
+            await processarFilaUmaRodada();
+            return { status: 'success', message: 'Ciclo executado com sucesso.' };
+        } catch (error) {
+            warn('Falha ao forcar ciclo da fila MyZap via IPC', {
+                metadata: { error }
+            });
+            return { status: 'error', message: error.message || String(error) };
+        }
+    });
+
+    ipcMain.handle('myzap:getQueueLogs', async (_event, maxLines = 80) => {
+        try {
+            const os = require('os');
+            const logDir = path.join(os.tmpdir(), 'jv-printer', 'logs');
+            const today = new Date().toISOString().split('T')[0];
+            const logFile = path.join(logDir, `${today}-log-myzap.jsonl`);
+            if (!fs.existsSync(logFile)) return [];
+            const content = fs.readFileSync(logFile, 'utf8');
+            const lines = content.trim().split('\n').filter(Boolean);
+            // Filtrar apenas logs da fila (whatsappQueueWatcher / [FilaMyZap])
+            const parsed = lines.map((line) => {
+                try { return JSON.parse(line); } catch (_e) { return null; }
+            }).filter(Boolean);
+            const filaOnly = parsed.filter((e) => {
+                const msg = e.message || '';
+                const area = e.metadata?.area || '';
+                return msg.includes('[FilaMyZap]') || area === 'whatsappQueueWatcher';
+            });
+            return filaOnly.slice(-maxLines);
+        } catch (error) {
+            warn('Falha ao ler logs da fila MyZap via IPC', {
                 metadata: { error }
             });
             return [];

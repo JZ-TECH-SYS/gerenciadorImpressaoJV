@@ -79,6 +79,10 @@ async function enviarStatusMyZap() {
     data_ult_verificacao: formatDateTimeForApi()
   };
 
+  info('[StatusMyZap] Enviando PUT para API', {
+    metadata: { area: 'myzapStatusWatcher', url: `${clickApiUrl}parametrizacao-myzap/status`, body }
+  });
+
   const res = await fetch(`${clickApiUrl}parametrizacao-myzap/status`, {
     method: 'PUT',
     headers: {
@@ -89,6 +93,10 @@ async function enviarStatusMyZap() {
   });
 
   const data = await res.json().catch(() => ({}));
+
+  info('[StatusMyZap] Resposta da API', {
+    metadata: { area: 'myzapStatusWatcher', httpStatus: res.status, responseBody: data }
+  });
 
   if (!res.ok || data?.error) {
     throw new Error(data?.error || `HTTP ${res.status}`);

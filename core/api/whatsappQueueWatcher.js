@@ -3,7 +3,7 @@ const { info, warn, error, debug } = require('../myzap/myzapLogger');
 
 const store = new Store();
 const MYZAP_API_URL = 'http://localhost:5555/';
-const LOOP_INTERVAL_MS = 30000;
+const LOOP_INTERVAL_MS = 3000;
 const FETCH_TIMEOUT_MS = 15000;
 const PROCESSANDO_TIMEOUT_MS = 120000;
 
@@ -57,16 +57,16 @@ async function validarDisponibilidadeMyZap(sessionKey, sessionToken) {
   }
 }
 
-async function buscarPendentes(apiBaseUrl, token, sessionKey, sessionToken) {
+async function buscarPendentes(apiBaseUrl, token, sessionKey, sessionName) {
   const query = new URLSearchParams({
     sessionKey: sessionKey || '',
-    sessionToken: sessionToken || ''
+    sessionToken: sessionName || ''
   }).toString();
 
   const ctrl = new AbortController();
   const timeout = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
 
-  debug('[FilaMyZap] Buscando pendentes', { metadata: { apiBaseUrl, sessionKey, query } });
+  debug('[FilaMyZap] Buscando pendentes', { metadata: { apiBaseUrl, sessionKey, sessionName, query } });
   const res = await fetch(`${apiBaseUrl}parametrizacao-myzap/pendentes?${query}`, {
     method: 'GET',
     headers: { Authorization: `Bearer ${token}` },
@@ -188,13 +188,15 @@ async function obterCredenciaisAtivas() {
   const clickApiUrl = normalizeBaseUrl(String(store.get('clickexpress_apiUrl') || '').trim());
   const clickToken = String(store.get('clickexpress_queueToken') || '').trim();
   const sessionKey = String(store.get('myzap_sessionKey') || '').trim();
-  const sessionToken = String(store.get('myzap_apiToken') || '').trim();
+  const sessionName = String(store.get('myzap_sessionName') || sessionKey).trim();
+  const myzapApiToken = String(store.get('myzap_apiToken') || '').trim();
 
   return {
     clickApiUrl,
     clickToken,
     sessionKey,
-    sessionToken
+    sessionName,
+    myzapApiToken
   };
 }
 
@@ -204,14 +206,14 @@ async function listarPendentesMyZap() {
     clickApiUrl,
     clickToken,
     sessionKey,
-    sessionToken
+    sessionName
   } = config;
 
-  if (!clickApiUrl || !clickToken || !sessionKey || !sessionToken) {
+  if (!clickApiUrl || !clickToken || !sessionKey || !sessionName) {
     return [];
   }
 
-  return buscarPendentes(clickApiUrl, clickToken, sessionKey, sessionToken);
+  return buscarPendentes(clickApiUrl, clickToken, sessionKey, sessionName);
 }
 
 async function processarFilaUmaRodada() {
@@ -240,7 +242,7 @@ async function processarFilaUmaRodada() {
   try {
     // Validar MyZap disponivel antes de buscar pendentes
     const configAtual = await obterCredenciaisAtivas();
-    if (!configAtual.sessionKey || !configAtual.sessionToken) {
+    if (!configAtual.sessionKey || !configAtual.myzapApiToken) {
       consecutiveSkips++;
       if (consecutiveSkips % SKIP_LOG_EVERY === 1) {
         warn(`[FilaMyZap] Credenciais ausentes (skip #${consecutiveSkips})`, {
@@ -256,7 +258,7 @@ async function processarFilaUmaRodada() {
       return;
     }
 
-    const myzapOk = await validarDisponibilidadeMyZap(configAtual.sessionKey, configAtual.sessionToken);
+    const myzapOk = await validarDisponibilidadeMyZap(configAtual.sessionKey, configAtual.myzapApiToken);
     if (!myzapOk) {
       consecutiveSkips++;
       if (consecutiveSkips % SKIP_LOG_EVERY === 1) {
@@ -297,7 +299,7 @@ async function processarFilaUmaRodada() {
       clickApiUrl,
       clickToken,
       sessionKey,
-      sessionToken
+      myzapApiToken
     } = await obterCredenciaisAtivas();
 
     for (const mensagem of lote) {
@@ -309,7 +311,7 @@ async function processarFilaUmaRodada() {
           metadata: { idfila: mensagem?.idfila, idempresa: mensagem?.idempresa }
         });
 
-        const envio = await enviarParaMyZap(mensagem, sessionKey, sessionToken);
+        const envio = await enviarParaMyZap(mensagem, sessionKey, myzapApiToken);
         novoStatus = envio.ok ? 'enviado' : 'erro';
 
         if (envio.ok) {
@@ -373,14 +375,20 @@ async function startWhatsappQueueWatcher() {
   }
 
   const config = await obterCredenciaisAtivas();
-  if (!config.clickApiUrl || !config.clickToken || !config.sessionKey || !config.sessionToken) {
+  if (!config.clickApiUrl || !config.clickToken || !config.sessionKey || !config.myzapApiToken) {
     warn('[FilaMyZap] Configuracao incompleta para iniciar watcher', {
-      metadata: config
+      metadata: {
+        clickApiUrl: !!config.clickApiUrl,
+        clickToken: !!config.clickToken,
+        sessionKey: !!config.sessionKey,
+        sessionName: !!config.sessionName,
+        myzapApiToken: !!config.myzapApiToken
+      }
     });
     return { status: 'error', message: 'Configuracao do ClickExpress/MyZap incompleta.' };
   }
 
-  const myzapDisponivel = await validarDisponibilidadeMyZap(config.sessionKey, config.sessionToken);
+  const myzapDisponivel = await validarDisponibilidadeMyZap(config.sessionKey, config.myzapApiToken);
   if (!myzapDisponivel) {
     return {
       status: 'error',
@@ -453,5 +461,6 @@ module.exports = {
   getUltimosPendentesMyZap,
   startWhatsappQueueWatcher,
   stopWhatsappQueueWatcher,
-  getWhatsappQueueWatcherStatus
+  getWhatsappQueueWatcherStatus,
+  processarFilaUmaRodada
 };

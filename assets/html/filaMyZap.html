@@ -35,6 +35,9 @@
                         <button id="btn-stop-queue" class="btn btn-outline-danger" type="button">
                             Parar processo da fila
                         </button>
+                        <button id="btn-force-cycle" class="btn btn-outline-info" type="button">
+                            &#x1F504; Buscar agora
+                        </button>
                     </div>
                 </div>
 
@@ -60,6 +63,28 @@
                                 </tr>
                             </tbody>
                         </table>
+                    </div>
+                </div>
+
+                <!-- Log em tempo real -->
+                <div class="fila-card mt-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <strong>Log da fila (tempo real)</strong>
+                        <div class="d-flex gap-2 align-items-center">
+                            <select id="log-level-filter" class="form-select form-select-sm log-level-select">
+                                <option value="all" selected>Todos</option>
+                                <option value="info">Info</option>
+                                <option value="warn">Aviso</option>
+                                <option value="error">Erro</option>
+                                <option value="debug">Debug</option>
+                            </select>
+                            <button id="btn-clear-log" class="btn btn-sm btn-outline-secondary" type="button" title="Limpar log">
+                                Limpar
+                            </button>
+                        </div>
+                    </div>
+                    <div id="queue-log-container" class="queue-log-container">
+                        <div class="text-center text-muted-small py-3">Aguardando logs...</div>
                     </div>
                 </div>
             </div>
