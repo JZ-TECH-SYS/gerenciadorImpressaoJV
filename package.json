@@ -3,7 +3,11 @@
   "description": "Gerenciador de impressão ClickExpress e WhatsApp",
   "version": "3.0.0",
   "main": "main.js",
-  "author": "joaosn",
+  "author": {
+    "name": "joaosn",
+    "email": "contato@jztechsys.com"
+  },
+  "packageManager": "pnpm@10.29.3",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
@@ -66,7 +70,7 @@
       "icon": "build/icons",
       "category": "Utility",
       "artifactName": "jv-printer-${version}-${arch}.${ext}",
-      "maintainer": "JZ-TECH-SYS",
+      "maintainer": "JZ-TECH-SYS <contato@jztechsys.com>",
       "executableName": "jv-printer",
       "desktop": {
         "Name": "JV Printer",

@@ -11,6 +11,7 @@ function buildMenuTemplate(printing, myzapAtivo, callbacks) {
     createSettings,
     togglePrint,
     toggleMyzap,
+    updateMyZapNow,
     createTestPrint,
     openLogViewer,
     abrirPastaLogs,
@@ -46,6 +47,7 @@ function buildMenuTemplate(printing, myzapAtivo, callbacks) {
         : '🔴  MyZap pausado',
       click: toggleMyzap
     },
+    { label: '🔄  Atualizar MyZap agora', click: updateMyZapNow },
     { label: '💬  Painel MyZap', click: createPainelMyZap },
     { label: '📬  Fila de mensagens', click: createFilaMyZap },
     { type: 'separator' },

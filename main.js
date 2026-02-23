@@ -48,6 +48,7 @@ const store = new Store({
 let printing = false;
 let myzapConfigRefreshTimer = null;
 let queueAutoStartTimer = null; // será alterado depois
+let myzapManualUpdateInProgress = false;
 const MYZAP_CONFIG_REFRESH_MS = 30 * 1000;
 
 /* =========================================================
@@ -141,6 +142,56 @@ function toggleMyzap() {
 
 function handleUpdateCheck() {
   checkForUpdates(autoUpdater, { toast, warn });
+}
+
+async function updateMyZapNow() {
+  if (myzapManualUpdateInProgress) {
+    toast('Atualização do MyZap já em andamento');
+    return;
+  }
+
+  if (!hasValidConfigMyZap()) {
+    toast('Configure API/Token/Empresa antes de atualizar o MyZap');
+    return;
+  }
+
+  myzapManualUpdateInProgress = true;
+  toast('Atualizando MyZap manualmente...');
+  myzapInfo('Atualização manual do MyZap solicitada via tray');
+
+  try {
+    const result = await ensureMyZapReadyAndStart({ forceRemote: true });
+    applyMyZapRuntimeByMode();
+
+    if (result?.status === 'success' && result?.skippedLocalStart) {
+      toast('Modo web/online ativo. Atualização local ignorada.');
+      return;
+    }
+
+    if (result?.status === 'success') {
+      toast('MyZap atualizado e reiniciado com sucesso');
+      if (isMyZapModoLocal()) {
+        enviarStatusMyZap().catch((err) => {
+          myzapWarn('Falha ao enviar status após atualização manual do MyZap', {
+            metadata: { error: err }
+          });
+        });
+      }
+      return;
+    }
+
+    toast(`Falha ao atualizar MyZap: ${result?.message || 'erro desconhecido'}`);
+    myzapWarn('Falha na atualização manual do MyZap', {
+      metadata: { result }
+    });
+  } catch (err) {
+    toast('Erro inesperado ao atualizar MyZap');
+    myzapError('Erro inesperado na atualização manual do MyZap', {
+      metadata: { error: err }
+    });
+  } finally {
+    myzapManualUpdateInProgress = false;
+  }
 }
 
 function togglePrint() {
@@ -306,6 +357,7 @@ app.whenReady().then(() => {
       createSettings,
       togglePrint,
       toggleMyzap,
+      updateMyZapNow,
       createTestPrint,
       openLogViewer,
       abrirPastaLogs,
