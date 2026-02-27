@@ -34,7 +34,7 @@ async function startSession() {
                 apitoken: token,
                 sessionkey: session
             },
-            body: JSON.stringify({ session, sessionName: sessionName || session })
+            body: JSON.stringify({ session, sessionName: sessionName || session, waitQrCode: true })
         });
 
         const data = await res.json();
