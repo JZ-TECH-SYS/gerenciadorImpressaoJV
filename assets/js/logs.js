@@ -3,10 +3,16 @@
     const logContent = document.getElementById('logContent');
     const logMeta = document.getElementById('logMeta');
     const searchInput = document.getElementById('search');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const scrollStatus = document.getElementById('scrollStatus');
     const filterInputs = Array.from(document.querySelectorAll('.filters input'));
 
     let currentFile = '';
     let ticker = null;
+    let isPaused = false;
+    let isUserScrolling = false;
+    let lastLogCount = 0;
+    
     const LEVEL_CLASSES = ['error', 'warn', 'info', 'debug'];
 
     const escapeHtml = (value) =>
@@ -89,35 +95,81 @@
             : '';
 
         element.classList.add(level);
-                element.innerHTML = `
+        element.innerHTML = `
             <div class="log-header">
                 <span class="log-time">${escapeHtml(timestamp)}</span>
                 <span class="log-level ${level}">${escapeHtml(level.toUpperCase())}</span>
             </div>
-      <div class="log-message">${escapeHtml(message)}</div>
-      ${metaHtml}
-      ${contentHtml}
-    `;
+            <div class="log-message">${escapeHtml(message)}</div>
+            ${metaHtml}
+            ${contentHtml}
+        `;
 
         return element;
     };
 
-    const renderLogLines = (lines) => {
-        logContent.innerHTML = '';
+    // Detecta se o usuário está no final do scroll
+    const isAtBottom = () => {
+        const threshold = 100; // pixels de tolerância
+        return (
+            logContent.scrollHeight - logContent.scrollTop - logContent.clientHeight < threshold
+        );
+    };
 
+    // Atualiza o status visual
+    const updateScrollStatus = () => {
+        const atBottom = isAtBottom();
+        const status = isPaused 
+            ? '⏸️ Atualização pausada' 
+            : atBottom 
+                ? '⚙️ Auto-atualização ativa | Você está no final do log'
+                : '👆 Você está analisando acima | Não recarregando automaticamente';
+        
+        scrollStatus.textContent = status;
+    };
+
+    // Renderização inteligente - só atualiza se não estiver scrollando ou se estiver no final
+    const renderLogLines = (lines, smartRender = false) => {
         if (!lines.length) {
+            logContent.innerHTML = '';
             logContent.textContent = 'Sem registros para mostrar.';
+            lastLogCount = 0;
             return;
         }
 
+        const atBottom = isAtBottom();
+        const lineCountChanged = lines.length !== lastLogCount;
+
+        // Se é renderização inteligente e o usuário está scrollando acima, não atualiza
+        if (smartRender && !atBottom && lineCountChanged) {
+            updateScrollStatus();
+            return;
+        }
+
+        // Renderiza tudo de novo (reverso chronológico)
+        logContent.innerHTML = '';
         const fragment = document.createDocumentFragment();
         const ordered = [...lines].reverse();
-        ordered.forEach((line) => fragment.appendChild(createLogLineElement(line)));
+        
+        ordered.forEach((line) => {
+            fragment.appendChild(createLogLineElement(line));
+        });
+        
         logContent.appendChild(fragment);
+        lastLogCount = lines.length;
+
+        // Volta para o final se estava lá antes
+        if (atBottom || !smartRender) {
+            setTimeout(() => {
+                logContent.scrollTop = logContent.scrollHeight;
+            }, 0);
+        }
+
+        updateScrollStatus();
     };
 
     async function refreshLog() {
-        if (!currentFile) return;
+        if (!currentFile || isPaused) return;
 
         const activeLevels = filterInputs.filter((input) => input.checked).map((input) => input.value);
         const searchTerm = searchInput.value.trim();
@@ -128,7 +180,9 @@
             search: searchTerm
         });
 
-        renderLogLines(data.display);
+        // Renderização inteligente
+        renderLogLines(data.display, true);
+        
         const updatedAt = new Date(data.meta.mtime).toLocaleString('pt-BR');
         const truncado = data.truncated ? ' (arquivo truncado)' : '';
         logMeta.textContent = `Arquivo: ${currentFile} | Tamanho: ${data.meta.size} bytes | Última gravação: ${updatedAt}${truncado}`;
@@ -145,6 +199,27 @@
             ticker = null;
         }
     }
+
+    // Detecta movimento do scroll
+    logContent.addEventListener('scroll', () => {
+        updateScrollStatus();
+    }, { passive: true });
+
+    // Botão pausar/retomar
+    pauseBtn.addEventListener('click', () => {
+        isPaused = !isPaused;
+        pauseBtn.textContent = isPaused ? '▶️ Retomar' : '⏸️ Pausar';
+        pauseBtn.style.background = isPaused ? '#664444' : '#447a3d';
+        
+        if (!isPaused) {
+            refreshLog();
+            startPolling();
+        } else {
+            stopPolling();
+        }
+        
+        updateScrollStatus();
+    });
 
     async function populateFiles() {
         const arquivos = await window.logViewer.listLogFiles();
@@ -174,7 +249,12 @@
 
     logFileSelect.addEventListener('change', () => {
         currentFile = logFileSelect.value;
+        lastLogCount = 0;
+        isPaused = false;
+        pauseBtn.textContent = '⏸️ Pausar';
+        pauseBtn.style.background = '#447a3d';
         refreshLog();
+        startPolling();
     });
 
     filterInputs.forEach((input) => {

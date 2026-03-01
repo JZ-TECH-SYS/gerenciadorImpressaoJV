@@ -343,10 +343,28 @@ async function imprimirHTML({
   }
 
   // ============ WINDOWS: Usa Electron webContents.print() ============
-  debug('Windows detectado - usando impressão via Electron', {
-    metadata: {
+  
+  // Análise do HTML antes de carregar
+  const temImagem = msg.includes('data:image');
+  const temQRCode = msg.toLowerCase().includes('qr code');
+  const posicaoImagem = msg.indexOf('data:image');
+  const previewImagem = temImagem ? msg.substring(posicaoImagem, posicaoImagem + 150) : 'sem imagem';
+
+  info('Analisando conteúdo HTML antes de carregar', {
+    metadata: { 
       impressora: printerName,
-      snippet: msg.length > 400 ? `${msg.slice(0, 400)}...` : msg
+      tamanhoHtml: msg.length,
+      temImagem,
+      temQRCode,
+      posicaoImagem: temImagem ? posicaoImagem : 'N/A',
+      previewImagem
+    }
+  });
+
+  info('Carregando conteúdo HTML no BrowserWindow', {
+    metadata: { 
+      impressora: printerName,
+      conteudoOriginal: msg.substring(0, 300) + '...'
     }
   });
 
@@ -357,13 +375,18 @@ async function imprimirHTML({
     webPreferences: { sandbox: false }
   });
 
-  info('Carregando conteúdo HTML no BrowserWindow', {
-    metadata: { impressora: printerName }
-  });
-
   await win.loadURL(
     'data:text/html;charset=utf-8,' + encodeURIComponent(msg)
   );
+  
+  info('HTML carregado com sucesso no BrowserWindow', {
+    metadata: { 
+      impressora: printerName,
+      tamanho: msg.length,
+      temImagem,
+      temQRCode
+    }
+  });
 
   return new Promise(async (resolve, reject) => {
     win.webContents.print(

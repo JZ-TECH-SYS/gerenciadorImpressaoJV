@@ -7,8 +7,14 @@
   </head>
   <body>
     <header>
-      <label for="logFile">📄 Selecionar log</label>
-      <select id="logFile"></select>
+      <div style="display: flex; gap: 12px; align-items: center;">
+        <div style="flex: 1;">
+          <label for="logFile">📄 Selecionar log</label>
+          <select id="logFile"></select>
+        </div>
+        <button id="pauseBtn" style="padding: 8px 14px; background: #447a3d; border: none; color: white; border-radius: 4px; cursor: pointer; font-weight: bold;">⏸️ Pausar</button>
+      </div>
+      
       <div class="filters">
         <label><input type="checkbox" value="error" checked /> Erro</label>
         <label><input type="checkbox" value="warn" checked /> Aviso</label>
@@ -20,6 +26,9 @@
         type="search"
         placeholder="Filtrar termo, impressora ou ticket"
       />
+      <div id="scrollStatus" style="font-size: 12px; color: #999; margin-top: 4px;">
+        ⚙️ Auto-atualização ativa | Você está no final do log
+      </div>
     </header>
 
     <div id="logContent" class="log-panel">Carregando...</div>

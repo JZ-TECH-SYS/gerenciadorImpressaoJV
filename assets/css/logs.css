@@ -17,7 +17,7 @@ body {
 header {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
 }
 
 select,
@@ -44,111 +44,156 @@ input[type='search'] {
   font-size: 13px;
 }
 
-      #logContent {
-        flex: 1;
-        background: #030303;
-        border: 1px solid #222;
-        border-radius: 6px;
-        padding: 12px;
-        overflow: auto;
-        min-height: 60vh;
-        font-size: 13px;
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-      }
+#logContent {
+  flex: 1;
+  background: #030303;
+  border: 1px solid #222;
+  border-radius: 6px;
+  padding: 12px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 60vh;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  scroll-behavior: smooth;
+}
 
-      .log-line {
-        border-radius: 6px;
-        padding: 10px 12px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(255, 255, 255, 0.03);
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-        font-family: 'Consolas', 'Segoe UI', monospace;
-      }
+/* Melhora o scrollbar */
+#logContent::-webkit-scrollbar {
+  width: 10px;
+}
 
-      .log-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        font-size: 12px;
-        color: #c8c8c8;
-      }
+#logContent::-webkit-scrollbar-track {
+  background: #0a0a0a;
+}
 
-      .log-level {
-        text-transform: uppercase;
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.05em;
-        padding: 2px 8px;
-        border-radius: 999px;
-      }
+#logContent::-webkit-scrollbar-thumb {
+  background: #444;
+  border-radius: 5px;
+}
 
-      .log-line.info {
-        border-color: rgba(46, 204, 113, 0.45);
-        background: rgba(46, 204, 113, 0.1);
-      }
+#logContent::-webkit-scrollbar-thumb:hover {
+  background: #666;
+}
 
-      .log-line.warn {
-        border-color: rgba(255, 193, 7, 0.45);
-        background: rgba(255, 193, 7, 0.12);
-      }
+.log-line {
+  border-radius: 6px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: 'Consolas', 'Courier New', monospace;
+  flex-shrink: 0;
+  animation: slideIn 0.3s ease-out;
+}
 
-      .log-line.error {
-        border-color: rgba(255, 99, 71, 0.5);
-        background: rgba(255, 99, 71, 0.12);
-      }
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 
-      .log-line.debug {
-        border-color: rgba(142, 142, 255, 0.45);
-        background: rgba(142, 142, 255, 0.12);
-      }
+.log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #c8c8c8;
+  margin-bottom: 4px;
+}
 
-      .log-level.info {
-        background: rgba(46, 204, 113, 0.25);
-        color: #9ff0bb;
-      }
+.log-level {
+  text-transform: uppercase;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
 
-      .log-level.warn {
-        background: rgba(255, 193, 7, 0.25);
-        color: #ffe6a3;
-      }
+.log-line.info {
+  border-color: rgba(46, 204, 113, 0.45);
+  background: rgba(46, 204, 113, 0.1);
+}
 
-      .log-level.error {
-        background: rgba(255, 99, 71, 0.25);
-        color: #ffc1b2;
-      }
+.log-line.warn {
+  border-color: rgba(255, 193, 7, 0.45);
+  background: rgba(255, 193, 7, 0.12);
+}
 
-      .log-level.debug {
-        background: rgba(142, 142, 255, 0.25);
-        color: #d1d3ff;
-      }
+.log-line.error {
+  border-color: rgba(255, 99, 71, 0.5);
+  background: rgba(255, 99, 71, 0.12);
+}
 
-      .log-message {
-        white-space: pre-wrap;
-        color: #f5f5f5;
-      }
+.log-line.debug {
+  border-color: rgba(142, 142, 255, 0.45);
+  background: rgba(142, 142, 255, 0.12);
+}
 
-      .log-meta {
-        font-size: 12px;
-        color: #c5c5c5;
-      }
+.log-level.info {
+  background: rgba(46, 204, 113, 0.25);
+  color: #9ff0bb;
+}
 
-      .log-content {
-        margin: 0;
-        padding: 8px;
-        border-radius: 4px;
-        background: #050a05;
-        border: 1px dashed rgba(46, 204, 113, 0.3);
-        color: #b7ffd0;
-        white-space: pre-wrap;
-        max-height: 320px;
-        overflow: auto;
-      }
+.log-level.warn {
+  background: rgba(255, 193, 7, 0.25);
+  color: #ffe6a3;
+}
+
+.log-level.error {
+  background: rgba(255, 99, 71, 0.25);
+  color: #ffc1b2;
+}
+
+.log-level.debug {
+  background: rgba(142, 142, 255, 0.25);
+  color: #d1d3ff;
+}
+
+.log-message {
+  white-space: pre-wrap;
+  color: #f5f5f5;
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+.log-meta {
+  font-size: 12px;
+  color: #c5c5c5;
+  padding-left: 8px;
+  border-left: 2px solid rgba(142, 142, 255, 0.3);
+  margin-top: 4px;
+}
+
+.log-content {
+  margin: 4px 0 0 0;
+  padding: 8px;
+  border-radius: 4px;
+  background: #050a05;
+  border: 1px dashed rgba(46, 204, 113, 0.3);
+  color: #b7ffd0;
+  white-space: pre-wrap;
+  max-height: 320px;
+  overflow: auto;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 12px;
+}
 
 #logMeta {
   font-size: 12px;
   color: #a0a0a0;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
