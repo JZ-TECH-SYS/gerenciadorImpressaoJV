@@ -430,6 +430,10 @@ attachAutoUpdaterHandlers(autoUpdater, { toast });
   2. App ready
 ========================================================= */
 app.whenReady().then(() => {
+  app.setLoginItemSettings({
+    openAtLogin: true,
+    path: process.execPath,
+  });
   info('Aplicação pronta para uso', {
     metadata: { ambiente: app.isPackaged ? 'producao' : 'desenvolvimento' }
   });

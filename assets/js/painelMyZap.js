@@ -606,7 +606,7 @@ async function checkRealConnection() {
 
     if (isQrWaiting) {
       statusIndicator.className = 'status-indicator waiting';
-      statusIndicator.textContent = 'â Aguardando leitura do QR Code';
+      statusIndicator.textContent = '⏳ Aguardando leitura do QR Code';
 
       setButtonsState({ canStart: false, canDelete: true });
       setIaConfigVisibility(false);
@@ -630,7 +630,7 @@ async function checkRealConnection() {
     console.error('Erro ao verificar status real:', err);
 
     statusIndicator.className = 'status-indicator disconnected';
-    statusIndicator.textContent = 'â Erro de conexo';
+    statusIndicator.textContent = '⚠️ Erro de conexão';
 
     qrBox.innerHTML = `
       <span class="text-danger text-small">
@@ -682,7 +682,7 @@ async function checkConnection() {
 
     if ((state === 'QRCODE' || status === 'qrCode') && qrCode) {
       statusIndicator.className = 'status-indicator waiting';
-      statusIndicator.textContent = 'â Aguardando leitura do QR Code';
+      statusIndicator.textContent = '⏳ Aguardando leitura do QR Code';
 
       qrBox.innerHTML = `
         <img 
@@ -699,7 +699,7 @@ async function checkConnection() {
     console.error('Erro ao verificar conexao:', err);
 
     statusIndicator.className = 'status-indicator disconnected';
-    statusIndicator.textContent = 'â Erro de conexo';
+    statusIndicator.textContent = '⚠️ Erro de conexão';
 
     qrBox.innerHTML = `
       <span class="text-danger text-small">
@@ -957,7 +957,7 @@ async function deletarSessao() {
 
     // 4ï¸âƒ£ UI final
     statusIndicator.className = 'status-indicator disconnected';
-    statusIndicator.textContent = 'â Sesso encerrada';
+    statusIndicator.textContent = '❌ Sessão encerrada';
 
     qrBox.innerHTML = `
       <span class="text-muted-small">
@@ -971,7 +971,7 @@ async function deletarSessao() {
     console.error('Erro ao deletar sessao:', err);
 
     statusIndicator.className = 'status-indicator disconnected';
-    statusIndicator.textContent = 'â Erro ao deletar sesso';
+    statusIndicator.textContent = '⚠️ Erro ao deletar sessão';
 
     qrBox.innerHTML = `
       <span class="text-danger text-small">
