@@ -104,10 +104,10 @@ async function startWatcher() {
               origemJob: resultado.source
             }
           });
-        } catch (error) {
-          console.error('[WATCHER] ❌ Erro ao imprimir:', error.message);
+        } catch (printErr) {
+          console.error('[WATCHER] ❌ Erro ao imprimir:', printErr.message);
           error('❌ Erro ao imprimir ticket', {
-            metadata: { error, ticket: item?.id || null }
+            metadata: { error: printErr, ticket: item?.id || null }
           });
         }
       }

@@ -6,6 +6,7 @@ const { killProcessesOnPort, commandExists, getPnpmCommand } = require('./proces
 const { iniciarMyZap } = require('./iniciarMyZap');
 const { syncMyZapConfigs } = require('./syncConfigs');
 const { transition } = require('./stateMachine');
+const { installGit, installNode } = require('./autoInstallDeps');
 
 function rodarComando(comando, args, opcoes = {}) {
     return new Promise((resolve) => {
@@ -48,25 +49,63 @@ async function clonarRepositorio(dirPath, envContent, reinstall = false, options
 
         transition('checking_config', { message: 'Verificando pre-requisitos locais...', dirPath });
 
+        // ── Auto-instalacao do Git se necessario ──
         if (!(await commandExists('git'))) {
-            return {
-                status: 'error',
-                message: 'Git nao encontrado no sistema. Instale o Git e tente novamente.'
-            };
+            info('Git nao encontrado — iniciando instalacao automatica', {
+                metadata: { area: 'clonarRepositorio' }
+            });
+            transition('installing_git', { message: 'Instalando Git automaticamente...', dirPath });
+            reportProgress('Git nao encontrado. Instalando automaticamente...', 'installing_git', {
+                percent: 12,
+                dirPath
+            });
+
+            const gitResult = await installGit(reportProgress);
+            if (!gitResult.ok) {
+                return { status: 'error', message: gitResult.message };
+            }
+
+            // Verifica se git ficou acessivel apos instalacao
+            if (!(await commandExists('git'))) {
+                return {
+                    status: 'error',
+                    message: 'Git foi instalado mas nao foi encontrado no PATH. Reinicie o aplicativo e tente novamente.'
+                };
+            }
+            reportProgress('Git instalado com sucesso!', 'installing_git', { percent: 28, dirPath });
         }
 
+        // ── Auto-instalacao do Node.js se necessario ──
         if (!(await commandExists('node'))) {
-            return {
-                status: 'error',
-                message: 'Node.js nao encontrado no sistema. Instale o Node.js e tente novamente.'
-            };
+            info('Node.js nao encontrado — iniciando instalacao automatica', {
+                metadata: { area: 'clonarRepositorio' }
+            });
+            transition('installing_node', { message: 'Instalando Node.js automaticamente...', dirPath });
+            reportProgress('Node.js nao encontrado. Instalando automaticamente...', 'installing_node', {
+                percent: 30,
+                dirPath
+            });
+
+            const nodeResult = await installNode(reportProgress);
+            if (!nodeResult.ok) {
+                return { status: 'error', message: nodeResult.message };
+            }
+
+            // Verifica se node ficou acessivel apos instalacao
+            if (!(await commandExists('node'))) {
+                return {
+                    status: 'error',
+                    message: 'Node.js foi instalado mas nao foi encontrado no PATH. Reinicie o aplicativo e tente novamente.'
+                };
+            }
+            reportProgress('Node.js instalado com sucesso!', 'installing_node', { percent: 48, dirPath });
         }
 
         const pnpmRunner = await getPnpmCommand();
         if (!pnpmRunner) {
             return {
                 status: 'error',
-                message: 'PNPM/NPX nao encontrado. Instale Node.js com npm/npx ou PNPM.'
+                message: 'PNPM/NPX nao encontrado apos instalacao do Node.js. Reinicie o aplicativo e tente novamente.'
             };
         }
 

@@ -591,15 +591,67 @@ ipcMain.on('myzap-settings-saved', async (_e, {
 });
 
 process.on('uncaughtException', (err) => {
+  // Grava log sincrono de emergencia para diagnostico de crash
+  const fs = require('fs');
+  const os = require('os');
+  const crashDir = require('path').join(os.tmpdir(), 'jv-printer', 'logs');
+  try {
+    if (!fs.existsSync(crashDir)) fs.mkdirSync(crashDir, { recursive: true });
+    const crashLine = JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: 'CRASH',
+      type: 'uncaughtException',
+      message: err?.message || String(err),
+      stack: err?.stack || 'sem stack',
+      pid: process.pid
+    }) + os.EOL;
+    fs.appendFileSync(require('path').join(crashDir, 'crash.log'), crashLine, 'utf8');
+  } catch (_e) { /* melhor esforco */ }
+
   error('uncaughtException', {
-    metadata: { error: err }
+    metadata: { error: err, stack: err?.stack }
   });
 });
 
 process.on('unhandledRejection', (reason) => {
+  // Grava log sincrono de emergencia para diagnostico de crash
+  const fs = require('fs');
+  const os = require('os');
+  const crashDir = require('path').join(os.tmpdir(), 'jv-printer', 'logs');
+  try {
+    if (!fs.existsSync(crashDir)) fs.mkdirSync(crashDir, { recursive: true });
+    const crashLine = JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: 'CRASH',
+      type: 'unhandledRejection',
+      message: reason?.message || String(reason),
+      stack: reason?.stack || 'sem stack',
+      pid: process.pid
+    }) + os.EOL;
+    fs.appendFileSync(require('path').join(crashDir, 'crash.log'), crashLine, 'utf8');
+  } catch (_e) { /* melhor esforco */ }
+
   error('unhandledRejection', {
-    metadata: { error: reason }
+    metadata: { error: reason, stack: reason?.stack }
   });
+});
+
+// Grava evento de saida do processo para diagnostico
+process.on('exit', (code) => {
+  const fs = require('fs');
+  const os = require('os');
+  const crashDir = require('path').join(os.tmpdir(), 'jv-printer', 'logs');
+  try {
+    if (!fs.existsSync(crashDir)) fs.mkdirSync(crashDir, { recursive: true });
+    const exitLine = JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: 'EXIT',
+      type: 'process_exit',
+      code,
+      pid: process.pid
+    }) + os.EOL;
+    fs.appendFileSync(require('path').join(crashDir, 'crash.log'), exitLine, 'utf8');
+  } catch (_e) { /* melhor esforco */ }
 });
 
 

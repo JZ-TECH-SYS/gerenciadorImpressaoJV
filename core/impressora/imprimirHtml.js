@@ -368,16 +368,38 @@ async function imprimirHTML({
     }
   });
 
-  const win = new BrowserWindow({
-    show: false,
-    width: widthPx,
-    height: 1000,
-    webPreferences: { sandbox: false }
-  });
+  let win;
+  try {
+    win = new BrowserWindow({
+      show: false,
+      width: widthPx,
+      height: 1000,
+      webPreferences: { sandbox: false }
+    });
+  } catch (winErr) {
+    error('Falha ao criar BrowserWindow para impressao', {
+      metadata: { impressora: printerName, error: winErr.message, stack: winErr.stack }
+    });
+    throw new Error(`Falha ao criar janela de impressao: ${winErr.message}`);
+  }
 
-  await win.loadURL(
-    'data:text/html;charset=utf-8,' + encodeURIComponent(msg)
-  );
+  function safeCloseWin() {
+    try {
+      if (win && !win.isDestroyed()) win.close();
+    } catch (_e) { /* janela ja fechada */ }
+  }
+
+  try {
+    await win.loadURL(
+      'data:text/html;charset=utf-8,' + encodeURIComponent(msg)
+    );
+  } catch (loadErr) {
+    error('Falha ao carregar HTML no BrowserWindow', {
+      metadata: { impressora: printerName, error: loadErr.message, stack: loadErr.stack, tamanhoHtml: msg.length }
+    });
+    safeCloseWin();
+    throw new Error(`Falha ao carregar HTML para impressao: ${loadErr.message}`);
+  }
   
   info('HTML carregado com sucesso no BrowserWindow', {
     metadata: { 
@@ -388,59 +410,75 @@ async function imprimirHTML({
     }
   });
 
-  return new Promise(async (resolve, reject) => {
-    win.webContents.print(
-      {
-        silent,
-        deviceName: printerName,
-        margins: { marginType: 'none' }
-      },
-      async (success, failureReason) => {
-        if (success) {
-          // Aguarda um pouco e tenta capturar o Job ID real do Windows
-          info('HTML enviado para impressora com sucesso', {
-            metadata: { impressora: printerName }
-          });
-          
+  return new Promise((resolve, reject) => {
+    try {
+      win.webContents.print(
+        {
+          silent,
+          deviceName: printerName,
+          margins: { marginType: 'none' }
+        },
+        async (success, failureReason) => {
           try {
-            const windowsJobId = await windowsJobMonitor.waitForJobId(printerName, 3000);
-            
-            if (windowsJobId) {
-              logImpressao(printerName, msg, windowsJobId);
-              info('Job confirmado pelo Windows', {
-                metadata: { impressora: printerName, jobId: windowsJobId }
+            if (success) {
+              // Aguarda um pouco e tenta capturar o Job ID real do Windows
+              info('HTML enviado para impressora com sucesso', {
+                metadata: { impressora: printerName }
               });
-              win.close();
-              resolve({ success: true, jobId: windowsJobId, source: 'windows' });
+              
+              try {
+                const windowsJobId = await windowsJobMonitor.waitForJobId(printerName, 3000);
+                
+                if (windowsJobId) {
+                  logImpressao(printerName, msg, windowsJobId);
+                  info('Job confirmado pelo Windows', {
+                    metadata: { impressora: printerName, jobId: windowsJobId }
+                  });
+                  safeCloseWin();
+                  resolve({ success: true, jobId: windowsJobId, source: 'windows' });
+                } else {
+                  // Fallback para ID customizado se não conseguir pegar do Windows
+                  const fallbackId = `CUSTOM_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                  logImpressao(printerName, msg, fallbackId);
+                  warn('Fallback de JobID após tentativa pelo Windows', {
+                    metadata: { impressora: printerName, jobId: fallbackId }
+                  });
+                  safeCloseWin();
+                  resolve({ success: true, jobId: fallbackId, source: 'fallback' });
+                }
+              } catch (jobErr) {
+                warn('Erro ao buscar Job ID do Windows', {
+                  metadata: { impressora: printerName, error: jobErr.message }
+                });
+                const fallbackId = `ERROR_${Date.now()}`;
+                logImpressao(printerName, msg, fallbackId);
+                safeCloseWin();
+                resolve({ success: true, jobId: fallbackId, source: 'error' });
+              }
             } else {
-              // Fallback para ID customizado se não conseguir pegar do Windows
-              const fallbackId = `CUSTOM_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-              logImpressao(printerName, msg, fallbackId);
-              warn('Fallback de JobID após tentativa pelo Windows', {
-                metadata: { impressora: printerName, jobId: fallbackId }
+              const erro = failureReason || 'Erro desconhecido na impressão';
+              error('Falha ao imprimir HTML', {
+                metadata: { impressora: printerName, erro }
               });
-              win.close();
-              resolve({ success: true, jobId: fallbackId, source: 'fallback' });
+              safeCloseWin();
+              reject(new Error(erro));
             }
-          } catch (error) {
-            warn('Erro ao buscar Job ID do Windows', {
-              metadata: { impressora: printerName, error }
+          } catch (callbackErr) {
+            error('Erro inesperado no callback de impressao', {
+              metadata: { impressora: printerName, error: callbackErr.message, stack: callbackErr.stack }
             });
-            const fallbackId = `ERROR_${Date.now()}`;
-            logImpressao(printerName, msg, fallbackId);
-            win.close();
-            resolve({ success: true, jobId: fallbackId, source: 'error' });
+            safeCloseWin();
+            reject(callbackErr);
           }
-        } else {
-          const erro = failureReason || 'Erro desconhecido na impressão';
-          error('Falha ao imprimir HTML', {
-            metadata: { impressora: printerName, erro }
-          });
-          win.close();
-          reject(new Error(erro));
         }
-      }
-    );
+      );
+    } catch (printErr) {
+      error('Erro ao chamar webContents.print()', {
+        metadata: { impressora: printerName, error: printErr.message, stack: printErr.stack }
+      });
+      safeCloseWin();
+      reject(printErr);
+    }
   });
 }
 
