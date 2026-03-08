@@ -164,6 +164,12 @@ async function ensureMyZapLocalRuntime(trigger = 'watchdog') {
   try {
     const portaAtiva = await isPortInUse(5555);
     if (portaAtiva) {
+      // Garante que a state machine reflete o estado real (ex: porta subiu 
+      // apos timeout anterior ter marcado 'error')
+      const { getState, forceTransition } = require('./core/myzap/stateMachine');
+      if (getState() !== 'running') {
+        forceTransition('running', { message: 'MyZap local ativo (detectado via porta 5555).', porta: 5555 });
+      }
       return { status: 'success', message: 'MyZap local ja ativo.' };
     }
 
