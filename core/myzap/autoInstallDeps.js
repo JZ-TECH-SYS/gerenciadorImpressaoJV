@@ -134,6 +134,8 @@ function runElevated(exePath, argsStr) {
 /**
  * Atualiza o PATH do processo atual para incluir novos caminhos
  * de instalacoes recem-feitas (sem precisar reiniciar o app).
+ * Expande variaveis de ambiente (%SystemRoot%, %ProgramFiles% etc.)
+ * para evitar que o PATH fique quebrado com referencias nao resolvidas.
  */
 function refreshPathWindows() {
     try {
@@ -153,13 +155,19 @@ function refreshPathWindows() {
             return match ? match[1].trim() : '';
         };
 
+        // Expande variaveis tipo %SystemRoot% usando o process.env atual
+        const expandVars = (str) => str.replace(/%([^%]+)%/g, (_, varName) => {
+            return process.env[varName] || `%${varName}%`;
+        });
+
         const newPathStr = [extractValue(systemPath), extractValue(userPath)]
             .filter(Boolean)
+            .map(expandVars)
             .join(';');
 
         if (newPathStr) {
             process.env.PATH = newPathStr;
-            info('PATH do processo atualizado apos instalacao', {
+            info('PATH do processo atualizado via registro do Windows', {
                 metadata: { area: 'autoInstallDeps' }
             });
         }
@@ -428,5 +436,6 @@ async function installNode(reportProgress = () => {}) {
 
 module.exports = {
     installGit,
-    installNode
+    installNode,
+    refreshPathWindows
 };

@@ -15,6 +15,14 @@ const {
 } = require('electron');
 const { autoUpdater } = require('electron-updater');
 
+// Desabilita aceleracao por hardware — previne crashes nativos do GPU
+// process que matam o app inteiro sem gravar log (especialmente
+// com drivers de impressoras termicas como EPSON TM-T).
+app.disableHardwareAcceleration();
+// Flags adicionais de estabilidade
+app.commandLine.appendSwitch('disable-gpu-compositing');
+app.commandLine.appendSwitch('disable-software-rasterizer');
+
 // Inicia o crash reporter ANTES de tudo — grava dumps nativos (Chromium/V8)
 const crashDumpsPath = require('path').join(require('os').tmpdir(), 'jv-printer', 'crashes');
 crashReporter.start({

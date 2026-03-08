@@ -394,19 +394,45 @@ async function imprimirHTML({
     pid: process.pid
   });
 
+  // Grava HTML em arquivo temporario — evita crash nativo que ocorre
+  // com data: URLs grandes/complexas no Chromium (principalmente com
+  // imagens base64 ou HTML pesado em impressoras termicas)
+  const tmpHtmlPath = path.join(os.tmpdir(), `jv-print-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.html`);
+  try {
+    const tmpDir = path.dirname(tmpHtmlPath);
+    if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+    fs.writeFileSync(tmpHtmlPath, msg, 'utf8');
+  } catch (tmpErr) {
+    error('Falha ao gravar HTML temporario para impressao', {
+      metadata: { impressora: printerName, error: tmpErr.message, tmpHtmlPath }
+    });
+    emergencyLog('PRINT_FAIL_TMP_FILE', { impressora: printerName, error: tmpErr.message });
+    throw new Error(`Falha ao preparar conteudo para impressao: ${tmpErr.message}`);
+  }
+
+  function cleanupTmpHtml() {
+    try { fs.unlinkSync(tmpHtmlPath); } catch (_e) { /* ok */ }
+  }
+
   let win;
   try {
     win = new BrowserWindow({
       show: false,
       width: widthPx,
       height: 1000,
-      webPreferences: { sandbox: false }
+      webPreferences: {
+        sandbox: true,              // isola renderer — crash nao mata main process
+        contextIsolation: true,
+        nodeIntegration: false,
+        offscreen: false
+      }
     });
   } catch (winErr) {
     error('Falha ao criar BrowserWindow para impressao', {
       metadata: { impressora: printerName, error: winErr.message, stack: winErr.stack }
     });
     emergencyLog('PRINT_FAIL_CREATE_WIN', { impressora: printerName, error: winErr.message });
+    cleanupTmpHtml();
     throw new Error(`Falha ao criar janela de impressao: ${winErr.message}`);
   }
 
@@ -414,6 +440,7 @@ async function imprimirHTML({
     try {
       if (win && !win.isDestroyed()) win.close();
     } catch (_e) { /* janela ja fechada */ }
+    cleanupTmpHtml();
   }
 
   // Handler para crash do renderer desta janela especifica
@@ -452,9 +479,7 @@ async function imprimirHTML({
   });
 
   try {
-    await win.loadURL(
-      'data:text/html;charset=utf-8,' + encodeURIComponent(msg)
-    );
+    await win.loadFile(tmpHtmlPath);
   } catch (loadErr) {
     error('Falha ao carregar HTML no BrowserWindow', {
       metadata: { impressora: printerName, error: loadErr.message, stack: loadErr.stack, tamanhoHtml: msg.length }

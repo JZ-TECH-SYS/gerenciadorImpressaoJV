@@ -6,7 +6,8 @@ const { killProcessesOnPort, commandExists, getPnpmCommand } = require('./proces
 const { iniciarMyZap } = require('./iniciarMyZap');
 const { syncMyZapConfigs } = require('./syncConfigs');
 const { transition } = require('./stateMachine');
-const { installGit, installNode } = require('./autoInstallDeps');
+const { installGit, installNode, refreshPathWindows } = require('./autoInstallDeps');
+const os = require('os');
 
 function rodarComando(comando, args, opcoes = {}) {
     return new Promise((resolve) => {
@@ -48,6 +49,12 @@ async function clonarRepositorio(dirPath, envContent, reinstall = false, options
         });
 
         transition('checking_config', { message: 'Verificando pre-requisitos locais...', dirPath });
+
+        // ── Atualiza PATH do registro antes de verificar dependencias ──
+        // Garante que instalacoes feitas apos o inicio do app sejam detectadas
+        if (os.platform() === 'win32') {
+            refreshPathWindows();
+        }
 
         // ── Auto-instalacao do Git se necessario ──
         if (!(await commandExists('git'))) {
