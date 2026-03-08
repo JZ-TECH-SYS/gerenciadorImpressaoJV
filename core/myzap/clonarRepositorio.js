@@ -60,9 +60,16 @@ async function clonarRepositorio(dirPath, envContent, reinstall = false, options
                 dirPath
             });
 
-            const gitResult = await installGit(reportProgress);
-            if (!gitResult.ok) {
-                return { status: 'error', message: gitResult.message };
+            try {
+                const gitResult = await installGit(reportProgress);
+                if (!gitResult.ok) {
+                    return { status: 'error', message: gitResult.message };
+                }
+            } catch (installErr) {
+                logError('Erro critico na auto-instalacao do Git', {
+                    metadata: { area: 'clonarRepositorio', error: installErr?.message, stack: installErr?.stack }
+                });
+                return { status: 'error', message: `Falha ao instalar Git: ${installErr.message}` };
             }
 
             // Verifica se git ficou acessivel apos instalacao
@@ -86,9 +93,16 @@ async function clonarRepositorio(dirPath, envContent, reinstall = false, options
                 dirPath
             });
 
-            const nodeResult = await installNode(reportProgress);
-            if (!nodeResult.ok) {
-                return { status: 'error', message: nodeResult.message };
+            try {
+                const nodeResult = await installNode(reportProgress);
+                if (!nodeResult.ok) {
+                    return { status: 'error', message: nodeResult.message };
+                }
+            } catch (installErr) {
+                logError('Erro critico na auto-instalacao do Node.js', {
+                    metadata: { area: 'clonarRepositorio', error: installErr?.message, stack: installErr?.stack }
+                });
+                return { status: 'error', message: `Falha ao instalar Node.js: ${installErr.message}` };
             }
 
             // Verifica se node ficou acessivel apos instalacao

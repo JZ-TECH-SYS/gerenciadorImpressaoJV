@@ -696,10 +696,11 @@ async function ensureMyZapReadyAndStart(options = {}) {
 
     ensureInFlightStartedAt = Date.now();
     ensureInFlight = (async () => {
-        transition('checking_config', { message: 'Iniciando sincronizacao do MyZap...' });
-        startProgress('Iniciando sincronizacao do MyZap...', 'start', { options });
+        try {
+            transition('checking_config', { message: 'Iniciando sincronizacao do MyZap...' });
+            startProgress('Iniciando sincronizacao do MyZap...', 'start', { options });
 
-        const prep = await prepareAutoConfig(options);
+            const prep = await prepareAutoConfig(options);
         if (prep.status !== 'success') {
             warn('MyZap start: preparacao falhou', {
                 metadata: {
@@ -811,6 +812,23 @@ async function ensureMyZapReadyAndStart(options = {}) {
             syncIa: syncIaResult?.status || 'error',
             syncIaMessage: syncIaResult?.message || 'Falha ao sincronizar configuracao de IA.'
         };
+        } catch (fatalErr) {
+            warn('ensureMyZapReadyAndStart: erro fatal capturado (isolado)', {
+                metadata: {
+                    area: 'autoConfig',
+                    error: fatalErr?.message || String(fatalErr),
+                    stack: fatalErr?.stack
+                }
+            });
+            finishProgressError(
+                `Erro inesperado no fluxo do MyZap: ${fatalErr?.message || String(fatalErr)}`,
+                'fatal_error'
+            );
+            return {
+                status: 'error',
+                message: `Erro inesperado: ${fatalErr?.message || String(fatalErr)}`
+            };
+        }
     })().finally(() => {
         ensureInFlight = null;
         ensureInFlightStartedAt = 0;

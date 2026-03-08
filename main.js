@@ -167,8 +167,8 @@ async function ensureMyZapLocalRuntime(trigger = 'watchdog') {
     applyMyZapRuntimeByMode();
     return result;
   } catch (err) {
-    myzapWarn('MyZap auto-ensure: erro ao validar/iniciar runtime local', {
-      metadata: { trigger, error: err?.message || String(err) }
+    myzapWarn('MyZap auto-ensure: erro ao validar/iniciar runtime local (isolado da impressao)', {
+      metadata: { trigger, error: err?.message || String(err), stack: err?.stack }
     });
     return { status: 'error', message: err?.message || String(err) };
   }
@@ -545,7 +545,11 @@ app.whenReady().then(() => {
     }
   } catch (_e) { /* melhor esforco */ }
 
-  autoStartMyZap();
+  autoStartMyZap().catch((err) => {
+    myzapError('MyZap auto-start: erro nao capturado (isolado da impressao)', {
+      metadata: { error: err?.message || String(err), stack: err?.stack }
+    });
+  });
   scheduleMyZapConfigRefresh();
   scheduleMyZapEnsureLoop();
 

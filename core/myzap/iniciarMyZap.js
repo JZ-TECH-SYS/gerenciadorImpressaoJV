@@ -133,56 +133,73 @@ async function iniciarMyZap(dirPath, options = {}) {
         const child = spawn(pnpmRunner.command, [...pnpmRunner.prefixArgs, 'start'], {
             cwd: dirPath,
             shell: true,
-            detached: false
+            detached: false,
+            stdio: ['ignore', 'pipe', 'pipe']
         });
 
         // Rastrear child process para kill posterior
         myzapChildProcess = child;
 
         child.stdout.on('data', (data) => {
-            info('MyZap runtime stdout', {
-                metadata: {
-                    area: 'iniciarMyZap',
-                    output: String(data).trim()
-                }
-            });
+            try {
+                info('MyZap runtime stdout', {
+                    metadata: {
+                        area: 'iniciarMyZap',
+                        output: String(data).trim()
+                    }
+                });
+            } catch (_e) { /* protecao contra crash no log */ }
         });
         let stderrOutput = '';
 
         child.stderr.on('data', (data) => {
-            const text = String(data).trim();
-            stderrOutput += (stderrOutput ? '\n' : '') + text;
-            info('MyZap runtime stderr', {
-                metadata: {
-                    area: 'iniciarMyZap',
-                    output: text
-                }
-            });
+            try {
+                const text = String(data).trim();
+                stderrOutput += (stderrOutput ? '\n' : '') + text;
+                info('MyZap runtime stderr', {
+                    metadata: {
+                        area: 'iniciarMyZap',
+                        output: text
+                    }
+                });
+            } catch (_e) { /* protecao contra crash no log */ }
         });
+
+        // Desacopla stdin do child — evita que um crash do child propague para o parent
+        if (child.stdin) {
+            try { child.stdin.end(); } catch (_e) { /* ok */ }
+        }
 
         let childError = null;
 
         child.on('error', (err) => {
             childError = err;
+            warn('MyZap child process emitiu error', {
+                metadata: { area: 'iniciarMyZap', error: err?.message || String(err) }
+            });
         });
 
         child.on('exit', (code, signal) => {
-            if (typeof code === 'number' && code !== 0) {
-                // Extrair primeira linha util do stderr (sem stack trace)
-                const firstLine = stderrOutput
-                    .split('\n')
-                    .map(l => l.trim())
-                    .find(l => l && !l.startsWith('at ') && !l.startsWith('node:'));
-                const detail = firstLine || stderrOutput.slice(0, 200);
-                const msg = detail
-                    ? `MyZap finalizou com codigo ${code}: ${detail}`
-                    : `MyZap finalizou com codigo ${code} (signal: ${signal || 'nenhum'})`;
-                childError = new Error(msg);
-            }
-            // Limpar referencia do child ao sair
-            if (myzapChildProcess === child) {
-                myzapChildProcess = null;
-            }
+            try {
+                if (typeof code === 'number' && code !== 0) {
+                    const firstLine = stderrOutput
+                        .split('\n')
+                        .map(l => l.trim())
+                        .find(l => l && !l.startsWith('at ') && !l.startsWith('node:'));
+                    const detail = firstLine || stderrOutput.slice(0, 200);
+                    const msg = detail
+                        ? `MyZap finalizou com codigo ${code}: ${detail}`
+                        : `MyZap finalizou com codigo ${code} (signal: ${signal || 'nenhum'})`;
+                    childError = new Error(msg);
+                }
+                // Limpar referencia do child ao sair
+                if (myzapChildProcess === child) {
+                    myzapChildProcess = null;
+                }
+                info('MyZap child process encerrado', {
+                    metadata: { area: 'iniciarMyZap', code, signal }
+                });
+            } catch (_e) { /* protecao contra crash no handler */ }
         });
 
         reportProgress('Aguardando MyZap abrir a porta local...', 'wait_port', {
