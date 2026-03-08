@@ -15,6 +15,11 @@ const path = require('path');
 const os = require('os');
 const { info, warn, error: logError } = require('./myzapLogger');
 
+// Cooldown entre tentativas de instalacao (evita loop infinito)
+const INSTALL_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutos
+const installAttempts = { git: 0, node: 0 };
+const MAX_ATTEMPTS = 2;
+
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
@@ -96,6 +101,33 @@ function runCommand(command, args, options = {}) {
 
         proc.on('close', (code) => resolve({ ok: code === 0, code, stdout, stderr }));
         proc.on('error', (err) => resolve({ ok: false, code: -1, stdout, stderr: err.message }));
+    });
+}
+
+/**
+ * Executa um programa com elevacao de privilegio (Admin/UAC) no Windows.
+ * Usa PowerShell Start-Process -Verb RunAs e aguarda a finalizacao.
+ * Retorna { ok: boolean, code: number }
+ */
+function runElevated(exePath, argsStr) {
+    return new Promise((resolve) => {
+        // Cria script PS1 temporario para executar e capturar exit code
+        const psScript = [
+            `$p = Start-Process -FilePath '${exePath.replace(/'/g, "''")}' -ArgumentList '${argsStr.replace(/'/g, "''")}' -Verb RunAs -Wait -PassThru`,
+            'exit $p.ExitCode'
+        ].join('; ');
+
+        const proc = spawn('powershell.exe', [
+            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psScript
+        ], { shell: false, windowsHide: true });
+
+        let stderr = '';
+        if (proc.stderr) {
+            proc.stderr.on('data', (d) => { stderr += d.toString(); });
+        }
+
+        proc.on('close', (code) => resolve({ ok: code === 0, code, stderr }));
+        proc.on('error', (err) => resolve({ ok: false, code: -1, stderr: err.message }));
     });
 }
 
@@ -204,19 +236,12 @@ async function installGitWindows(reportProgress) {
         return { ok: false, message: `Falha ao baixar Git: ${err.message}` };
     }
 
-    reportProgress('Instalando Git (silencioso)...', 'installing_git', { percent: 26 });
-    info('Executando instalador do Git silenciosamente', { metadata: { area: 'autoInstallDeps' } });
+    reportProgress('Instalando Git (solicitando permissao de administrador)...', 'installing_git', { percent: 26 });
+    info('Executando instalador do Git com elevacao (UAC)', { metadata: { area: 'autoInstallDeps' } });
 
-    // Instalacao silenciosa do Git — /VERYSILENT nao mostra janela, /NORESTART evita reiniciar
-    const result = await runCommand(installerPath, [
-        '/VERYSILENT',
-        '/NORESTART',
-        '/NOCANCEL',
-        '/SP-',
-        '/CLOSEAPPLICATIONS',
-        '/RESTARTAPPLICATIONS',
-        '/COMPONENTS=icons,ext\\reg\\shellhere,assoc,assoc_sh'
-    ]);
+    // Instalacao com elevacao — solicita UAC uma vez
+    const gitArgs = '/VERYSILENT /NORESTART /NOCANCEL /SP- /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS /COMPONENTS=icons,ext\\reg\\shellhere,assoc,assoc_sh';
+    const result = await runElevated(installerPath, gitArgs);
 
     // Limpa instalador
     try { fs.unlinkSync(installerPath); } catch (_e) { /* ok */ }
@@ -295,16 +320,12 @@ async function installNodeWindows(reportProgress) {
         return { ok: false, message: `Falha ao baixar Node.js: ${err.message}` };
     }
 
-    reportProgress('Instalando Node.js (silencioso)...', 'installing_node', { percent: 42 });
-    info('Executando instalador do Node.js silenciosamente', { metadata: { area: 'autoInstallDeps' } });
+    reportProgress('Instalando Node.js (solicitando permissao de administrador)...', 'installing_node', { percent: 42 });
+    info('Executando instalador do Node.js com elevacao (UAC)', { metadata: { area: 'autoInstallDeps' } });
 
-    // msiexec com /qn = totalmente silencioso, /norestart evita reboot
-    const result = await runCommand('msiexec', [
-        '/i', `"${installerPath}"`,
-        '/qn',
-        '/norestart',
-        'ADDLOCAL=ALL'
-    ]);
+    // msiexec com elevacao — /qn = silencioso, /norestart evita reboot
+    const msiArgs = `/i "${installerPath}" /qn /norestart ADDLOCAL=ALL`;
+    const result = await runElevated('msiexec.exe', msiArgs);
 
     // Limpa instalador
     try { fs.unlinkSync(installerPath); } catch (_e) { /* ok */ }
@@ -369,6 +390,15 @@ async function installNodeLinux(reportProgress) {
  * @returns {Promise<{ok: boolean, message: string}>}
  */
 async function installGit(reportProgress = () => {}) {
+    // Anti-loop: nao tentar mais que MAX_ATTEMPTS vezes
+    if (installAttempts.git >= MAX_ATTEMPTS) {
+        warn('Limite de tentativas de instalacao do Git atingido. Nao tentando novamente.', {
+            metadata: { area: 'autoInstallDeps', tentativas: installAttempts.git }
+        });
+        return { ok: false, message: `Git: limite de ${MAX_ATTEMPTS} tentativas atingido. Reinicie o app ou instale manualmente.` };
+    }
+    installAttempts.git++;
+
     if (os.platform() === 'win32') {
         return installGitWindows(reportProgress);
     }
@@ -381,6 +411,15 @@ async function installGit(reportProgress = () => {}) {
  * @returns {Promise<{ok: boolean, message: string}>}
  */
 async function installNode(reportProgress = () => {}) {
+    // Anti-loop: nao tentar mais que MAX_ATTEMPTS vezes
+    if (installAttempts.node >= MAX_ATTEMPTS) {
+        warn('Limite de tentativas de instalacao do Node.js atingido. Nao tentando novamente.', {
+            metadata: { area: 'autoInstallDeps', tentativas: installAttempts.node }
+        });
+        return { ok: false, message: `Node.js: limite de ${MAX_ATTEMPTS} tentativas atingido. Reinicie o app ou instale manualmente.` };
+    }
+    installAttempts.node++;
+
     if (os.platform() === 'win32') {
         return installNodeWindows(reportProgress);
     }
