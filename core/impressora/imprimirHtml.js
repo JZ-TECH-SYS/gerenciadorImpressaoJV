@@ -9,6 +9,23 @@ const execPromise = util.promisify(exec);
 const { info, debug, warn, error, logImpressao } = require('../utils/logger');
 const windowsJobMonitor = require('../utils/windowsJobMonitor');
 
+const PRINT_TIMEOUT_MS = 30000; // 30s max por impressao
+const CRASH_LOG_PATH = path.join(os.tmpdir(), 'jv-printer', 'logs', 'crash.log');
+
+/** Grava log sincrono de emergencia (sobrevive a crash) */
+function emergencyLog(type, data) {
+  try {
+    const dir = path.dirname(CRASH_LOG_PATH);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const line = JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level: type,
+      ...data
+    }) + os.EOL;
+    fs.appendFileSync(CRASH_LOG_PATH, line, 'utf8');
+  } catch (_e) { /* melhor esforco */ }
+}
+
 const isWindows = os.platform() === 'win32';
 
 // ── Fila de impressão serializada (Linux) ─────────────────────────
@@ -368,6 +385,15 @@ async function imprimirHTML({
     }
   });
 
+  // Log sincrono ANTES de criar a janela — se crashar aqui, pelo menos temos evidencia
+  emergencyLog('PRINT_ATTEMPT', {
+    impressora: printerName,
+    tamanhoHtml: msg.length,
+    temImagem,
+    temQRCode,
+    pid: process.pid
+  });
+
   let win;
   try {
     win = new BrowserWindow({
@@ -380,6 +406,7 @@ async function imprimirHTML({
     error('Falha ao criar BrowserWindow para impressao', {
       metadata: { impressora: printerName, error: winErr.message, stack: winErr.stack }
     });
+    emergencyLog('PRINT_FAIL_CREATE_WIN', { impressora: printerName, error: winErr.message });
     throw new Error(`Falha ao criar janela de impressao: ${winErr.message}`);
   }
 
@@ -389,6 +416,41 @@ async function imprimirHTML({
     } catch (_e) { /* janela ja fechada */ }
   }
 
+  // Handler para crash do renderer desta janela especifica
+  let rendererCrashed = false;
+  win.webContents.on('render-process-gone', (_event, details) => {
+    rendererCrashed = true;
+    const crashInfo = {
+      impressora: printerName,
+      reason: details.reason,
+      exitCode: details.exitCode,
+      tamanhoHtml: msg.length,
+      temImagem,
+      temQRCode
+    };
+    error('CRASH RENDERER durante impressao — processo de renderizacao morreu', {
+      metadata: crashInfo
+    });
+    emergencyLog('CRASH_RENDERER_PRINT', crashInfo);
+    safeCloseWin();
+  });
+
+  // Handler para crash do webContents (evento legado, mas ainda util)
+  win.webContents.on('crashed', (_event, killed) => {
+    if (rendererCrashed) return; // ja tratado acima
+    rendererCrashed = true;
+    const crashInfo = {
+      impressora: printerName,
+      killed,
+      tamanhoHtml: msg.length
+    };
+    error('webContents CRASHED durante impressao', {
+      metadata: crashInfo
+    });
+    emergencyLog('CRASH_WEBCONTENTS_PRINT', crashInfo);
+    safeCloseWin();
+  });
+
   try {
     await win.loadURL(
       'data:text/html;charset=utf-8,' + encodeURIComponent(msg)
@@ -397,10 +459,16 @@ async function imprimirHTML({
     error('Falha ao carregar HTML no BrowserWindow', {
       metadata: { impressora: printerName, error: loadErr.message, stack: loadErr.stack, tamanhoHtml: msg.length }
     });
+    emergencyLog('PRINT_FAIL_LOAD', { impressora: printerName, error: loadErr.message, tamanhoHtml: msg.length });
     safeCloseWin();
     throw new Error(`Falha ao carregar HTML para impressao: ${loadErr.message}`);
   }
-  
+
+  // Se o renderer ja crashou durante o loadURL
+  if (rendererCrashed) {
+    throw new Error('Renderer crashou ao carregar HTML para impressao. Verifique crash.log para detalhes.');
+  }
+
   info('HTML carregado com sucesso no BrowserWindow', {
     metadata: { 
       impressora: printerName,
@@ -410,7 +478,32 @@ async function imprimirHTML({
     }
   });
 
+  emergencyLog('PRINT_SENDING', { impressora: printerName, fase: 'webContents.print' });
+
   return new Promise((resolve, reject) => {
+    let settled = false;
+
+    // Timeout de seguranca — se nada acontecer em 30s, rejeita e limpa
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      const msg = `Timeout de ${PRINT_TIMEOUT_MS}ms na impressao para ${printerName}`;
+      error(msg, { metadata: { impressora: printerName, timeout: PRINT_TIMEOUT_MS } });
+      emergencyLog('PRINT_TIMEOUT', { impressora: printerName, timeout: PRINT_TIMEOUT_MS });
+      safeCloseWin();
+      reject(new Error(msg));
+    }, PRINT_TIMEOUT_MS);
+
+    // Se o renderer crashar durante o print, rejeita a promise
+    const onRendererGone = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      reject(new Error('Renderer crashou durante impressao. Verifique crash.log.'));
+    };
+    win.webContents.once('render-process-gone', onRendererGone);
+    win.webContents.once('crashed', onRendererGone);
+
     try {
       win.webContents.print(
         {
@@ -419,12 +512,16 @@ async function imprimirHTML({
           margins: { marginType: 'none' }
         },
         async (success, failureReason) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeout);
+
           try {
             if (success) {
-              // Aguarda um pouco e tenta capturar o Job ID real do Windows
               info('HTML enviado para impressora com sucesso', {
                 metadata: { impressora: printerName }
               });
+              emergencyLog('PRINT_SUCCESS', { impressora: printerName });
               
               try {
                 const windowsJobId = await windowsJobMonitor.waitForJobId(printerName, 3000);
@@ -437,10 +534,9 @@ async function imprimirHTML({
                   safeCloseWin();
                   resolve({ success: true, jobId: windowsJobId, source: 'windows' });
                 } else {
-                  // Fallback para ID customizado se não conseguir pegar do Windows
                   const fallbackId = `CUSTOM_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
                   logImpressao(printerName, msg, fallbackId);
-                  warn('Fallback de JobID após tentativa pelo Windows', {
+                  warn('Fallback de JobID apos tentativa pelo Windows', {
                     metadata: { impressora: printerName, jobId: fallbackId }
                   });
                   safeCloseWin();
@@ -456,10 +552,11 @@ async function imprimirHTML({
                 resolve({ success: true, jobId: fallbackId, source: 'error' });
               }
             } else {
-              const erro = failureReason || 'Erro desconhecido na impressão';
+              const erro = failureReason || 'Erro desconhecido na impressao';
               error('Falha ao imprimir HTML', {
                 metadata: { impressora: printerName, erro }
               });
+              emergencyLog('PRINT_FAIL', { impressora: printerName, erro });
               safeCloseWin();
               reject(new Error(erro));
             }
@@ -467,15 +564,20 @@ async function imprimirHTML({
             error('Erro inesperado no callback de impressao', {
               metadata: { impressora: printerName, error: callbackErr.message, stack: callbackErr.stack }
             });
+            emergencyLog('PRINT_CALLBACK_ERROR', { impressora: printerName, error: callbackErr.message });
             safeCloseWin();
             reject(callbackErr);
           }
         }
       );
     } catch (printErr) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
       error('Erro ao chamar webContents.print()', {
         metadata: { impressora: printerName, error: printErr.message, stack: printErr.stack }
       });
+      emergencyLog('PRINT_CALL_ERROR', { impressora: printerName, error: printErr.message });
       safeCloseWin();
       reject(printErr);
     }

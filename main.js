@@ -10,9 +10,18 @@ const {
   app,
   Menu,
   Notification,
-  ipcMain
+  ipcMain,
+  crashReporter
 } = require('electron');
 const { autoUpdater } = require('electron-updater');
+
+// Inicia o crash reporter ANTES de tudo — grava dumps nativos (Chromium/V8)
+const crashDumpsPath = require('path').join(require('os').tmpdir(), 'jv-printer', 'crashes');
+crashReporter.start({
+  submitURL: '',      // nao envia para nenhum servidor
+  uploadToServer: false,
+  compress: false
+});
 
 // Remove completamente o menu do Electron em todas as janelas
 Menu.setApplicationMenu(null);
@@ -434,8 +443,56 @@ app.whenReady().then(() => {
     openAtLogin: true,
     path: process.execPath,
   });
+
+  // Captura crash de qualquer renderer (BrowserWindow de impressao, settings, etc.)
+  app.on('render-process-gone', (_event, webContents, details) => {
+    const crashInfo = {
+      reason: details.reason,
+      exitCode: details.exitCode,
+      url: webContents?.getURL?.()?.substring(0, 200) || 'desconhecida',
+      title: webContents?.getTitle?.() || 'sem titulo'
+    };
+    error('CRASH RENDERER: processo de renderizacao morreu', {
+      metadata: { ...crashInfo, area: 'render-process-gone' }
+    });
+    // Grava sincrono de emergencia
+    try {
+      const crashLine = JSON.stringify({
+        timestamp: new Date().toISOString(),
+        level: 'CRASH_RENDERER',
+        ...crashInfo
+      }) + require('os').EOL;
+      const crashLogPath = require('path').join(require('os').tmpdir(), 'jv-printer', 'logs', 'crash.log');
+      require('fs').appendFileSync(crashLogPath, crashLine, 'utf8');
+    } catch (_e) { /* melhor esforco */ }
+  });
+
+  app.on('child-process-gone', (_event, details) => {
+    const crashInfo = {
+      type: details.type,
+      reason: details.reason,
+      exitCode: details.exitCode,
+      name: details.name || 'desconhecido'
+    };
+    error('CRASH CHILD: processo filho morreu', {
+      metadata: { ...crashInfo, area: 'child-process-gone' }
+    });
+    try {
+      const crashLine = JSON.stringify({
+        timestamp: new Date().toISOString(),
+        level: 'CRASH_CHILD',
+        ...crashInfo
+      }) + require('os').EOL;
+      const crashLogPath = require('path').join(require('os').tmpdir(), 'jv-printer', 'logs', 'crash.log');
+      require('fs').appendFileSync(crashLogPath, crashLine, 'utf8');
+    } catch (_e) { /* melhor esforco */ }
+  });
+
   info('Aplicação pronta para uso', {
-    metadata: { ambiente: app.isPackaged ? 'producao' : 'desenvolvimento' }
+    metadata: {
+      ambiente: app.isPackaged ? 'producao' : 'desenvolvimento',
+      crashDumpsPath: app.getPath('crashDumps')
+    }
   });
   trayManager.init(
     path.join(__dirname, 'assets/icon.png'),

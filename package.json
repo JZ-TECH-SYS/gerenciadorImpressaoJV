@@ -1,7 +1,7 @@
 {
   "name": "jv-printer",
   "description": "Gerenciador de impressão ClickExpress e WhatsApp",
-  "version": "3.2.4",
+  "version": "3.2.5",
   "main": "main.js",
   "author": {
     "name": "joaosn",
