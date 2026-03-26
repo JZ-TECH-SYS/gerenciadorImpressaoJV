@@ -450,9 +450,23 @@ function scheduleQueueAutoStart() {
 attachAutoUpdaterHandlers(autoUpdater, { toast });
 
 /* =========================================================
-  2. App ready
+  2. Instancia unica — impede abrir o app duas vezes
+========================================================= */
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  // Ja existe uma instancia rodando: encerra esta imediatamente
+  app.quit();
+}
+
+/* =========================================================
+  3. App ready
 ========================================================= */
 app.whenReady().then(() => {
+  // Quando uma segunda instancia e tentada, foca a janela ou apenas loga
+  app.on('second-instance', () => {
+    info('Tentativa de abrir segunda instancia bloqueada — app ja esta rodando no tray');
+  });
+
   app.setLoginItemSettings({
     openAtLogin: true,
     path: process.execPath,
@@ -574,7 +588,7 @@ app.whenReady().then(() => {
 // (Atualização já aplicada na fila acima)
 
 /* =========================================================
-  3. Janelas nunca fecham o app (fica só no tray)
+  4. Janelas nunca fecham o app (fica só no tray)
 ========================================================= */
 app.on('window-all-closed', e => e.preventDefault());
 app.on('before-quit', () => {
@@ -596,7 +610,7 @@ app.on('before-quit', () => {
 });
 
 /* =========================================================
-   4. IPC handlers
+   5. IPC handlers
 ========================================================= */
 ipcMain.handle('settings:get', (_e, key) => store.get(key));
 
