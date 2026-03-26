@@ -6,7 +6,7 @@ const util = require("util");
 const execPromise = util.promisify(exec);
 
 const { gerarNomeUnico } = require("./gerarNomeUnico");
-const { warn, error, info } = require("./logger");
+const { warn, error, info } = require("./printerLogger");
 
 const isWindows = os.platform() === "win32";
 
@@ -68,6 +68,30 @@ function shellEscapePosix(value) {
   return "'" + value.replace(/'/g, "'\\\\'") + "'";
 }
 
+function findLinuxUsbDevices() {
+  const devices = [];
+  for (let index = 0; index < 4; index += 1) {
+    const devicePath = `/dev/usb/lp${index}`;
+    try {
+      fs.accessSync(devicePath, fs.constants.F_OK);
+      devices.push(devicePath);
+    } catch (_error) {
+      // device nao existe
+    }
+  }
+  return devices;
+}
+
+async function isUsbPrinter(printerName) {
+  try {
+    const safePrinter = shellEscapePosix(printerName);
+    const { stdout } = await execPromise(`lpstat -v ${safePrinter}`, { timeout: 5000 });
+    return /usb:\/\//i.test(stdout);
+  } catch (_error) {
+    return false;
+  }
+}
+
 function wrapTextoComEscPos(msg) {
   const linhas = msg.split('\n');
   const partes = [];
@@ -91,18 +115,6 @@ function wrapTextoComEscPos(msg) {
   partes.push(ESCPOS.FEED2 + ESCPOS.FEED2 + ESCPOS.CUT);
 
   return partes.join('\n');
-}
-
-function findLinuxUsbDevices() {
-  const devices = [];
-  for (let i = 0; i < 4; i++) {
-    const devicePath = `/dev/usb/lp${i}`;
-    try {
-      fs.accessSync(devicePath, fs.constants.F_OK);
-      devices.push(devicePath);
-    } catch { /* device não existe */ }
-  }
-  return devices;
 }
 
 function writeToUsbDevice(devicePath, data) {
@@ -155,20 +167,29 @@ function imprimirTexto({ impressora, msg }) {
       const safePrinter = shellEscapePosix(impressora);
       const safeFile = shellEscapePosix(filePath);
 
-      const attempts = [];
+      const directDeviceSelected = impressora.startsWith('/dev/');
+      const usbDevices = directDeviceSelected ? [] : findLinuxUsbDevices();
+      const directUsbCandidate = !directDeviceSelected
+        && usbDevices.length === 1
+        && await isUsbPrinter(impressora)
+        ? usbDevices[0]
+        : null;
+      const attempts = directDeviceSelected
+        ? [{ type: 'device-direct', devicePath: impressora }]
+        : [
+            ...(directUsbCandidate ? [{ type: 'device-direct', devicePath: directUsbCandidate }] : []),
+            { type: 'lp', command: `lp -d ${safePrinter} -o raw ${safeFile}` },
+            { type: 'lpr', command: `lpr -P ${safePrinter} -l ${safeFile}` }
+          ];
 
-      if (impressora.startsWith('/dev/')) {
-        attempts.push({ type: 'device-direct', devicePath: impressora });
-      } else {
-        const usbDevices = findLinuxUsbDevices();
-        for (const dp of usbDevices) {
-          attempts.push({ type: 'device-direct', devicePath: dp });
+      info('Linux: método de impressão selecionado (utils)', {
+        metadata: {
+          impressora,
+          modo: directDeviceSelected ? 'device-direct' : 'cups-ou-direct',
+          usbDirectCandidate: directUsbCandidate,
+          totalUsbDevices: usbDevices.length
         }
-        attempts.push(
-          { type: 'lp', command: `lp -d ${safePrinter} -o raw ${safeFile}` },
-          { type: 'lpr', command: `lpr -P ${safePrinter} -l ${safeFile}` }
-        );
-      }
+      });
 
       let success = false;
       for (const attempt of attempts) {

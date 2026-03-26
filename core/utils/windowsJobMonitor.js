@@ -1,7 +1,7 @@
 // core/utils/windowsJobMonitor.js
 const { spawn } = require('child_process');
 const os = require('os');
-const { log } = require('./logger');
+const { log } = require('./printerLogger');
 
 const isWindows = os.platform() === 'win32';
 

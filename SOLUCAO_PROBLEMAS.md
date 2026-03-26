@@ -41,8 +41,9 @@ Os logs ficam salvos em:
 
 ### 📁 ARQUIVOS DE LOG:
 
-- `YYYY-MM-DD-log-sistema.log` - Logs do sistema de impressão
-- `YYYY-MM-DD-log-win.log` - Logs dos Job IDs do Windows
+- `YYYY-MM-DD-log-sistema.jsonl` - Eventos gerais do aplicativo
+- `YYYY-MM-DD-log-impressora.jsonl` - Eventos de impressão e Job IDs
+- `YYYY-MM-DD-log-myzap.jsonl` - Eventos do MyZap / WhatsApp
 
 ### 🆘 SE AINDA NÃO FUNCIONAR:
 

@@ -2,10 +2,44 @@
 const consultarTickets = require('./consultarTickets');
 const imprimirHTML     = require('../impressora/imprimirHtml');
 const Store            = require('electron-store');
-const { info, warn, error, debug } = require('../utils/logger');
+const { info, warn, error, debug } = require('../utils/printerLogger');
 
 const store = new Store();
 let ativo   = false;
+const RECENT_TICKET_TTL_MS = 15 * 1000;
+const recentPrintedTickets = new Map();
+
+function cleanupRecentPrintedTickets(now = Date.now()) {
+  for (const [key, timestamp] of recentPrintedTickets.entries()) {
+    if ((now - timestamp) > RECENT_TICKET_TTL_MS) {
+      recentPrintedTickets.delete(key);
+    }
+  }
+}
+
+function getTicketReference(item) {
+  return item?.id || item?.chave || item?.idticket || item?.idTicket || null;
+}
+
+function getTicketDedupKey(item, printerName) {
+  const reference = getTicketReference(item);
+  if (!reference || !printerName) {
+    return null;
+  }
+  return `${reference}::${printerName}`;
+}
+
+function wasTicketPrintedRecently(ticketKey, now = Date.now()) {
+  cleanupRecentPrintedTickets(now);
+  const timestamp = recentPrintedTickets.get(ticketKey);
+  return Boolean(timestamp && (now - timestamp) <= RECENT_TICKET_TTL_MS);
+}
+
+function markTicketAsPrinted(ticketKey, now = Date.now()) {
+  if (!ticketKey) return;
+  cleanupRecentPrintedTickets(now);
+  recentPrintedTickets.set(ticketKey, now);
+}
 
 async function startWatcher() {
   if (ativo) return;
@@ -20,6 +54,7 @@ async function startWatcher() {
       const tickets = await consultarTickets();
       debug('Tickets consultados', { metadata: { quantidade: tickets.length } });
       const impressoraPadrao = store.get('printer'); // Impressora padrão das configurações
+      cleanupRecentPrintedTickets();
       
       console.log('\n[WATCHER] 🔍 Processando tickets...');
       console.log('[WATCHER] Total de tickets:', tickets.length);
@@ -30,11 +65,12 @@ async function startWatcher() {
           // Cada item agora é { texto: "...", impressora: "nome" ou null }
           const textoParaImprimir = item.texto || item; // Compatibilidade com formato antigo
           const impressoraEspecifica = item.impressora; // null ou nome da impressora
+          const ticketRef = getTicketReference(item);
 
           info('Impressão do ticket iniciado', {
             metadata: {
               impressoraSolicitada: impressoraEspecifica || 'padrão',
-              ticket: item.id || item.chave || null
+              ticket: ticketRef
             }
           });
           
@@ -44,7 +80,20 @@ async function startWatcher() {
           if (!printerName) {
             console.warn('[WATCHER] ⚠️ Nenhuma impressora definida!');
             warn('⚠️ Nenhuma impressora definida para este ticket', {
-              metadata: { ticket: item.id || item.chave || null }
+              metadata: { ticket: ticketRef }
+            });
+            continue;
+          }
+
+          const ticketKey = getTicketDedupKey(item, printerName);
+          if (ticketKey && wasTicketPrintedRecently(ticketKey)) {
+            warn('Ticket repetido ignorado dentro da janela de proteção', {
+              metadata: {
+                ticket: ticketRef,
+                ticketKey,
+                impressora: printerName,
+                ttlMs: RECENT_TICKET_TTL_MS
+              }
             });
             continue;
           }
@@ -95,19 +144,21 @@ async function startWatcher() {
           });
           
           const resultado = await imprimirHTML({ msg: textoParaImprimir, printerName });
+          markTicketAsPrinted(ticketKey);
           console.log(`[WATCHER] ✅ Impresso! Job ID: ${resultado.jobId}, Source: ${resultado.source}`);
           info('✅ Ticket impresso com sucesso', {
             metadata: {
               impressora: printerName,
               jobId: resultado.jobId,
-              ticket: item.id || null,
-              origemJob: resultado.source
+              ticket: ticketRef,
+              origemJob: resultado.source,
+              ticketKey
             }
           });
         } catch (printErr) {
           console.error('[WATCHER] ❌ Erro ao imprimir:', printErr.message);
           error('❌ Erro ao imprimir ticket', {
-            metadata: { error: printErr, ticket: item?.id || null }
+            metadata: { error: printErr, ticket: getTicketReference(item) }
           });
         }
       }

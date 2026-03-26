@@ -98,7 +98,7 @@ Diretorio:
 
 Arquivos por canal:
 - sistema: `YYYY-MM-DD-log-sistema.jsonl`
-- windows jobs: `YYYY-MM-DD-log-win.jsonl`
+- impressora: `YYYY-MM-DD-log-impressora.jsonl`
 - myzap: `YYYY-MM-DD-log-myzap.jsonl`
 
 ## Como validar rapido

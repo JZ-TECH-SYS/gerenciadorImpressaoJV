@@ -6,7 +6,7 @@ const fs = require('fs');
 const { exec } = require('child_process');
 const util = require('util');
 const execPromise = util.promisify(exec);
-const { info, debug, warn, error, logImpressao } = require('../utils/logger');
+const { info, debug, warn, error, logImpressao } = require('../utils/printerLogger');
 const windowsJobMonitor = require('../utils/windowsJobMonitor');
 
 const PRINT_TIMEOUT_MS = 30000; // 30s max por impressao
@@ -98,22 +98,28 @@ function shellEscapePosix(value) {
   return "'" + value.replace(/'/g, "'\\''") + "'";
 }
 
-/**
- * Lista device files de impressoras USB existentes no Linux.
- * Retorna caminhos como /dev/usb/lp0, /dev/usb/lp1, etc.
- */
 function findLinuxUsbDevices() {
   const devices = [];
-  for (let i = 0; i < 4; i++) {
-    const devicePath = `/dev/usb/lp${i}`;
+  for (let index = 0; index < 4; index += 1) {
+    const devicePath = `/dev/usb/lp${index}`;
     try {
       fs.accessSync(devicePath, fs.constants.F_OK);
       devices.push(devicePath);
-    } catch {
-      // device não existe
+    } catch (_error) {
+      // device nao existe
     }
   }
   return devices;
+}
+
+async function isUsbPrinter(printerName) {
+  try {
+    const safePrinter = shellEscapePosix(printerName);
+    const { stdout } = await execPromise(`lpstat -v ${safePrinter}`, { timeout: 5000 });
+    return /usb:\/\//i.test(stdout);
+  } catch (_error) {
+    return false;
+  }
 }
 
 /**
@@ -127,18 +133,6 @@ function writeToUsbDevice(devicePath, data) {
     fs.fsyncSync(fd);
   } finally {
     fs.closeSync(fd);
-  }
-}
-
-/**
- * Verifica se a impressora CUPS é USB via lpstat -v.
- */
-async function isUsbPrinter(printerName) {
-  try {
-    const { stdout } = await execPromise(`lpstat -v ${shellEscapePosix(printerName)}`, { timeout: 5000 });
-    return /usb:\/\//i.test(stdout);
-  } catch {
-    return false;
   }
 }
 
@@ -258,28 +252,29 @@ async function imprimirLinux(dadosEscPos, printerName) {
     const safeTmpFile = shellEscapePosix(tmpFile);
 
     // Monta lista de tentativas
-    const attempts = [];
+    const directDeviceSelected = printerName.startsWith('/dev/');
+    const usbDevices = directDeviceSelected ? [] : findLinuxUsbDevices();
+    const directUsbCandidate = !directDeviceSelected
+      && usbDevices.length === 1
+      && await isUsbPrinter(printerName)
+      ? usbDevices[0]
+      : null;
+    const attempts = directDeviceSelected
+      ? [{ type: 'device-direct', devicePath: printerName }]
+      : [
+          ...(directUsbCandidate ? [{ type: 'device-direct', devicePath: directUsbCandidate }] : []),
+          { type: 'lp', command: `lp -d ${safePrinter} -o raw ${safeTmpFile}` },
+          { type: 'lpr', command: `lpr -P ${safePrinter} -l ${safeTmpFile}` }
+        ];
 
-    if (printerName.startsWith('/dev/')) {
-      // Usuário selecionou device direto
-      attempts.push({ type: 'device-direct', devicePath: printerName });
-    } else {
-      // Tenta descobrir devices USB
-      const usbDevices = findLinuxUsbDevices();
-      const isUsb = usbDevices.length > 0 || await isUsbPrinter(printerName);
-
-      if (isUsb) {
-        for (const devicePath of usbDevices) {
-          attempts.push({ type: 'device-direct', devicePath });
-        }
+    info('Linux: método de impressão selecionado', {
+      metadata: {
+        impressora: printerName,
+        modo: directDeviceSelected ? 'device-direct' : 'cups-ou-direct',
+        usbDirectCandidate: directUsbCandidate,
+        totalUsbDevices: usbDevices.length
       }
-
-      // Fallbacks CUPS
-      attempts.push(
-        { type: 'lp', command: `lp -d ${safePrinter} -o raw ${safeTmpFile}` },
-        { type: 'lpr', command: `lpr -P ${safePrinter} -l ${safeTmpFile}` }
-      );
-    }
+    });
 
     let lastError;
 
@@ -332,7 +327,7 @@ async function imprimirHTML({
   // Enfileira para garantir que um job só começa após o anterior terminar
   if (!isWindows) {
     return enqueuePrintJob(async () => {
-      info('Linux detectado - usando impressão ESC/POS direta', {
+      info('Linux detectado - usando impressão ESC/POS raw', {
         metadata: { impressora: printerName }
       });
       

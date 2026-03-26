@@ -1,4 +1,4 @@
-const { warn } = require('../utils/logger');
+const { warn } = require('../utils/printerLogger');
 const listarImpressoras = require('../impressora/listarImpressoras');
 
 function registerPrinterHandlers(ipcMain) {

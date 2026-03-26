@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const Store = require('electron-store');
 const { warn, info } = require('../myzap/myzapLogger');
+const { getLogFilePath } = require('../utils/logger');
 const clonarRepositorio = require('../myzap/clonarRepositorio');
 const verificarDiretorio = require('../myzap/verificarDiretorio');
 const getConnectionStatus = require('../myzap/api/getConnectionStatus');
@@ -294,10 +295,7 @@ function registerMyZapHandlers(ipcMain) {
 
     ipcMain.handle('myzap:getQueueLogs', async (_event, maxLines = 80) => {
         try {
-            const os = require('os');
-            const logDir = path.join(os.tmpdir(), 'jv-printer', 'logs');
-            const today = new Date().toISOString().split('T')[0];
-            const logFile = path.join(logDir, `${today}-log-myzap.jsonl`);
+            const logFile = getLogFilePath('myzap', 'jsonl');
             if (!fs.existsSync(logFile)) return [];
             const content = fs.readFileSync(logFile, 'utf8');
             const lines = content.trim().split('\n').filter(Boolean);

@@ -1,10 +1,25 @@
 const os = require("os");
+const fs = require("fs");
 const { exec } = require("child_process");
 const util = require("util");
 const execPromise = util.promisify(exec);
-const { info, warn, error } = require("../utils/logger");
+const { info, warn, error } = require("../utils/printerLogger");
 
 const isWindows = os.platform() === "win32";
+
+function findLinuxUsbDevices() {
+  const devices = [];
+  for (let index = 0; index < 4; index += 1) {
+    const devicePath = `/dev/usb/lp${index}`;
+    try {
+      fs.accessSync(devicePath, fs.constants.F_OK);
+      devices.push(devicePath);
+    } catch (_error) {
+      // device nao existe
+    }
+  }
+  return devices;
+}
 
 async function listarImpressoras() {
   try {
@@ -141,6 +156,14 @@ async function listarImpressoras() {
         } catch (e) {
           // Ignora erro
         }
+      }
+
+      const usbDevices = findLinuxUsbDevices();
+      if (usbDevices.length > 0) {
+        nomes = [...new Set([...nomes, ...usbDevices])];
+        info('Dispositivos USB diretos encontrados no Linux', {
+          metadata: { totalUsb: usbDevices.length, dispositivos: usbDevices }
+        });
       }
     }
     

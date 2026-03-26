@@ -5,10 +5,12 @@ const os = require('os');
 const RETENCAO_DIAS = 7;
 const MAX_FILE_BYTES = 3 * 1024 * 1024; // 3MB por arquivo antes de rotacionar
 const LOG_DIR = path.join(os.tmpdir(), 'jv-printer', 'logs');
+const LOG_TIMEZONE = 'America/Sao_Paulo';
 const WRITE_PLAIN_LOG = false; // padroniza saída em JSON Lines
 const LOG_CHANNELS = {
   system: 'log-sistema',
-  windows: 'log-win',
+  printer: 'log-impressora',
+  windows: 'log-impressora',
   myzap: 'log-myzap'
 };
 
@@ -27,7 +29,7 @@ function ensureLogDir() {
 
 function formatTimestamp(date = new Date()) {
   return date.toLocaleString('pt-BR', {
-    timeZone: 'America/Sao_Paulo',
+    timeZone: LOG_TIMEZONE,
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
@@ -37,10 +39,28 @@ function formatTimestamp(date = new Date()) {
   });
 }
 
+function getLogDateKey(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: LOG_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(date);
+
+  const map = parts.reduce((acc, part) => {
+    if (part.type !== 'literal') {
+      acc[part.type] = part.value;
+    }
+    return acc;
+  }, {});
+
+  return `${map.year}-${map.month}-${map.day}`;
+}
+
 function getLogFilePath(channel = 'system', extension = 'log') {
   ensureLogDir();
   const prefix = LOG_CHANNELS[channel] || LOG_CHANNELS.system;
-  const date = new Date().toISOString().split('T')[0];
+  const date = getLogDateKey();
   return path.join(LOG_DIR, `${date}-${prefix}.${extension}`);
 }
 
@@ -137,7 +157,7 @@ function logImpressao(impressora, conteudo, jobId = null) {
   if (conteudoLog) {
     meta.conteudo = conteudoLog;
   }
-  log(mensagem, { level: jobId ? 'info' : 'warn', metadata: meta });
+  log(mensagem, { level: jobId ? 'info' : 'warn', channel: 'printer', metadata: meta });
 }
 
 function limparLogsAntigos() {
@@ -205,10 +225,10 @@ LOCALIZACAO DOS LOGS:
 ${LOG_DIR}
 
 ARQUIVOS DE LOG:
-- YYYY-MM-DD-log-sistema.log - Logs do sistema de impressao
-- YYYY-MM-DD-log-win.log - Logs dos Job IDs do Windows
-- YYYY-MM-DD-log-sistema.jsonl - Linha única em JSON por evento
-- YYYY-MM-DD-log-win.jsonl - Linha única em JSON por evento dos jobs
+- YYYY-MM-DD-log-sistema.jsonl - Eventos gerais do aplicativo
+- YYYY-MM-DD-log-impressora.jsonl - Eventos de impressao e Job IDs
+- YYYY-MM-DD-log-myzap.jsonl - Eventos do MyZap / WhatsApp
+- YYYY-MM-DD-log-impressora.log - Versao texto puro da impressao (se habilitada)
 
 SE AINDA NAO FUNCIONAR:
 
@@ -268,8 +288,10 @@ LOCALIZACAO DOS LOGS:
 ${LOG_DIR}
 
 ARQUIVOS DE LOG:
-- YYYY-MM-DD-log-sistema.jsonl - Linha única em JSON por evento
-- YYYY-MM-DD-log-sistema.log - Logs do sistema de impressao (se habilitado)
+- YYYY-MM-DD-log-sistema.jsonl - Eventos gerais do aplicativo
+- YYYY-MM-DD-log-impressora.jsonl - Eventos de impressao
+- YYYY-MM-DD-log-myzap.jsonl - Eventos do MyZap / WhatsApp
+- YYYY-MM-DD-log-impressora.log - Versao texto puro da impressao (se habilitada)
 
 SE AINDA NAO FUNCIONAR:
 
@@ -308,6 +330,7 @@ module.exports = {
   debug,
   logImpressao,
   getLogFilePath,
+  getLogDateKey,
   getCaminhoLogs,
   abrirPastaLogs,
   criarArquivoAjuda,
