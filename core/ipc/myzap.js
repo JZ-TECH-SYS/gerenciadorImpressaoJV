@@ -22,7 +22,8 @@ const {
     startWhatsappQueueWatcher,
     stopWhatsappQueueWatcher,
     getWhatsappQueueWatcherStatus,
-    processarFilaUmaRodada
+    processarFilaUmaRodada,
+    enviarTesteParaProprioNumero
 } = require('../api/whatsappQueueWatcher');
 
 const envStore = new Store();
@@ -287,6 +288,33 @@ function registerMyZapHandlers(ipcMain) {
             return { status: 'success', message: 'Ciclo executado com sucesso.' };
         } catch (error) {
             warn('Falha ao forcar ciclo da fila MyZap via IPC', {
+                metadata: { error }
+            });
+            return { status: 'error', message: error.message || String(error) };
+        }
+    });
+
+    ipcMain.handle('myzap:testarEnvio', async () => {
+        try {
+            info('IPC myzap:testarEnvio recebido (teste para o proprio numero)', {
+                metadata: { area: 'ipcMyzap' }
+            });
+            const r = await enviarTesteParaProprioNumero();
+            if (r.ok) {
+                return {
+                    status: 'success',
+                    numero: r.numero,
+                    message: `Mensagem de teste enviada para ${r.numero}. Confira o WhatsApp da loja.`
+                };
+            }
+            return {
+                status: 'error',
+                etapa: r.etapa || null,
+                numero: r.numero || null,
+                message: r.erro || 'Falha no teste de envio.'
+            };
+        } catch (error) {
+            warn('Falha no teste de envio MyZap via IPC', {
                 metadata: { error }
             });
             return { status: 'error', message: error.message || String(error) };

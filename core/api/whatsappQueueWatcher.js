@@ -281,6 +281,8 @@ async function processarFilaUmaRodada() {
       if (!ativo) break;
 
       let novoStatus = 'erro';
+      let motivoErro = '';   // preenchido quando da erro
+      let retornoJson = '';  // JSON da resposta do MyZap quando da certo
       try {
         info('[FilaMyZap] Enviando mensagem', {
           metadata: { idfila: mensagem?.idfila, idempresa: mensagem?.idempresa }
@@ -290,19 +292,26 @@ async function processarFilaUmaRodada() {
         novoStatus = envio.ok ? 'enviado' : 'erro';
 
         if (envio.ok) {
+          try {
+            retornoJson = envio.body ? JSON.stringify(envio.body) : '';
+          } catch (_) {
+            retornoJson = '';
+          }
           info('[FilaMyZap] Mensagem enviada com sucesso', {
             metadata: { idfila: mensagem?.idfila, idempresa: mensagem?.idempresa }
           });
         } else {
+          motivoErro = String(envio?.erro || envio?.motivo || 'Falha desconhecida no envio');
           warn('[FilaMyZap] Falha ao enviar mensagem para MyZap', {
             metadata: {
               idfila: mensagem?.idfila,
               idempresa: mensagem?.idempresa,
-              motivo: envio?.erro || envio?.motivo
+              motivo: motivoErro
             }
           });
         }
       } catch (envioError) {
+        motivoErro = String(envioError?.message || envioError || 'Erro inesperado no envio');
         warn('Erro inesperado no envio para MyZap', {
           metadata: {
             idfila: mensagem?.idfila,
@@ -315,7 +324,9 @@ async function processarFilaUmaRodada() {
       const statusOk = await atualizarStatusFila(clickApiUrl, clickToken, {
         idfila: mensagem?.idfila,
         idempresa: mensagem?.idempresa,
-        status: novoStatus
+        status: novoStatus,
+        erro: novoStatus === 'erro' ? motivoErro : '',
+        retorno: novoStatus === 'enviado' ? retornoJson : ''
       });
 
       if (!statusOk) {
@@ -432,11 +443,93 @@ function getUltimosPendentesMyZap() {
   return Array.isArray(ultimosPendentes) ? [...ultimosPendentes] : [];
 }
 
+/**
+ * Teste ponta a ponta: valida a API do ClickExpress (buscando o número da loja
+ * pelas credenciais) e o MyZap local (enviando uma mensagem para o PRÓPRIO
+ * número da loja). Não passa pela fila — envia direto, para feedback imediato.
+ *
+ * @returns {Promise<{ok:boolean, etapa?:string, erro?:string, numero?:string}>}
+ *   etapa: 'config' | 'api' | 'myzap' | 'envio'
+ */
+async function enviarTesteParaProprioNumero() {
+  const { clickApiUrl, clickToken, sessionKey, sessionName, myzapApiToken } = await obterCredenciaisAtivas();
+
+  if (!clickApiUrl || !clickToken || !sessionKey || !sessionName || !myzapApiToken) {
+    return { ok: false, etapa: 'config', erro: 'Configuracao do ClickExpress/MyZap incompleta.' };
+  }
+
+  // 1) Valida a API e obtem o proprio numero (cell da loja)
+  let numero;
+  try {
+    const query = new URLSearchParams({ sessionKey, sessionToken: sessionName }).toString();
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+
+    const res = await fetch(`${clickApiUrl}parametrizacao-myzap/numero-loja?${query}`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${clickToken}` },
+      signal: ctrl.signal
+    });
+
+    clearTimeout(timeout);
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok || data?.error) {
+      return { ok: false, etapa: 'api', erro: data?.error || `API respondeu HTTP ${res.status}` };
+    }
+    numero = data?.result?.numero;
+    if (!numero) {
+      return { ok: false, etapa: 'api', erro: 'A API nao retornou o numero da loja (cell cadastrado?)' };
+    }
+  } catch (err) {
+    return { ok: false, etapa: 'api', erro: `Falha ao falar com a API: ${err?.message || err}` };
+  }
+
+  // 2) MyZap disponivel?
+  const myzapOk = await validarDisponibilidadeMyZap(sessionKey, myzapApiToken);
+  if (!myzapOk) {
+    return { ok: false, etapa: 'myzap', erro: 'MyZap indisponivel (WhatsApp desconectado?)', numero };
+  }
+
+  // 3) Envia a mensagem de teste para o proprio numero
+  try {
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+
+    const res = await fetch(`${MYZAP_API_URL}sendText`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apitoken: myzapApiToken,
+        sessionkey: sessionKey
+      },
+      body: JSON.stringify({
+        session: sessionName,
+        number: numero,
+        text: '✅ Teste do ClickExpress: se voce recebeu esta mensagem, o WhatsApp esta enviando normalmente.'
+      }),
+      signal: ctrl.signal
+    });
+
+    clearTimeout(timeout);
+    const body = await res.json().catch(() => ({}));
+
+    if (!res.ok || body?.error || (typeof body?.result !== 'undefined' && body.result !== 200)) {
+      return { ok: false, etapa: 'envio', erro: body?.error || `Envio respondeu HTTP ${res.status}`, numero };
+    }
+
+    return { ok: true, numero };
+  } catch (err) {
+    return { ok: false, etapa: 'envio', erro: `Falha ao enviar pelo MyZap: ${err?.message || err}`, numero };
+  }
+}
+
 module.exports = {
   listarPendentesMyZap,
   getUltimosPendentesMyZap,
   startWhatsappQueueWatcher,
   stopWhatsappQueueWatcher,
   getWhatsappQueueWatcherStatus,
-  processarFilaUmaRodada
+  processarFilaUmaRodada,
+  enviarTesteParaProprioNumero
 };

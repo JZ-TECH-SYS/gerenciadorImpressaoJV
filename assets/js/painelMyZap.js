@@ -858,6 +858,27 @@ function startQrPolling() {
 }
 
 
+async function testarEnvioMyZap() {
+  const btn = document.getElementById('btn-testar-envio');
+  const textoOriginal = btn ? btn.textContent : '';
+  try {
+    if (btn) { btn.disabled = true; btn.textContent = 'Testando...'; }
+
+    const r = await window.api.testarEnvioMyZap();
+
+    if (r && r.status === 'success') {
+      alert('✅ ' + (r.message || 'Teste enviado com sucesso. Confira o WhatsApp da loja.'));
+    } else {
+      const etapa = r && r.etapa ? ' [' + r.etapa + ']' : '';
+      alert('❌ Falha no teste' + etapa + ':\n' + ((r && r.message) || 'Erro desconhecido.'));
+    }
+  } catch (e) {
+    alert('❌ Erro ao executar o teste de envio: ' + (e?.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = textoOriginal; }
+  }
+}
+
 async function iniciarSessao() {
   console.log('[MyZap UI] iniciarSessao: botao clicado');
   if (!(await isModoLocalAtivo())) {
