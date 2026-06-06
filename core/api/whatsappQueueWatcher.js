@@ -26,6 +26,39 @@ function normalizeBaseUrl(url) {
   return url.endsWith('/') ? url : `${url}/`;
 }
 
+/**
+ * Converte qualquer valor de erro (string, numero, boolean, Error, objeto ou
+ * resposta crua do MyZap) numa string legivel para gravar como "motivo" na fila.
+ * Evita gravar "[object Object]" (objeto via String()) ou "true" (boolean).
+ *
+ * @param {*} valor Valor bruto do erro
+ * @param {string} fallback Mensagem usada quando nao ha nada legivel
+ * @returns {string}
+ */
+function extrairMensagemErro(valor, fallback = 'Falha desconhecida no envio') {
+  if (valor === null || valor === undefined) return fallback;
+  if (typeof valor === 'string') return valor.trim() || fallback;
+  if (typeof valor === 'number') return String(valor);
+  if (typeof valor === 'boolean') return fallback; // "true"/"false" nao ajuda no diagnostico
+  if (valor instanceof Error) return valor.message || fallback;
+
+  if (typeof valor === 'object') {
+    // Tenta os campos de mensagem mais comuns (MyZap / fetch / axios)
+    for (const campo of ['message', 'error', 'text', 'msg', 'reason', 'description']) {
+      const v = valor[campo];
+      if (typeof v === 'string' && v.trim()) return v.trim();
+    }
+    // Sem campo legivel: serializa o objeto inteiro para preservar o contexto
+    try {
+      const json = JSON.stringify(valor);
+      if (json && json !== '{}' && json !== '[]' && json !== 'null') return json;
+    } catch (_) { /* referencia circular: cai no fallback */ }
+    return fallback;
+  }
+
+  return fallback;
+}
+
 async function validarDisponibilidadeMyZap(sessionKey, sessionToken) {
   try {
     const ctrl = new AbortController();
@@ -143,7 +176,12 @@ async function enviarParaMyZap(mensagem, fallbackSessionKey, fallbackApiToken) {
 
   const body = await res.json().catch(() => ({}));
   if (!res.ok || body?.error) {
-    return { ok: false, erro: body?.error || `HTTP ${res.status}` };
+    // body.error pode vir como string, objeto ou ate boolean (true), dependendo
+    // do MyZap. Normaliza para uma mensagem legivel e nunca "[object Object]".
+    const motivo = extrairMensagemErro(body?.error, '')
+      || extrairMensagemErro(body, '')
+      || `HTTP ${res.status}`;
+    return { ok: false, erro: motivo };
   }
 
   if (endpointNormalizado.toLowerCase() === 'sendtext' && body?.result !== 200) {
@@ -301,7 +339,7 @@ async function processarFilaUmaRodada() {
             metadata: { idfila: mensagem?.idfila, idempresa: mensagem?.idempresa }
           });
         } else {
-          motivoErro = String(envio?.erro || envio?.motivo || 'Falha desconhecida no envio');
+          motivoErro = extrairMensagemErro(envio?.erro ?? envio?.motivo, 'Falha desconhecida no envio');
           warn('[FilaMyZap] Falha ao enviar mensagem para MyZap', {
             metadata: {
               idfila: mensagem?.idfila,
@@ -311,7 +349,7 @@ async function processarFilaUmaRodada() {
           });
         }
       } catch (envioError) {
-        motivoErro = String(envioError?.message || envioError || 'Erro inesperado no envio');
+        motivoErro = extrairMensagemErro(envioError, 'Erro inesperado no envio');
         warn('Erro inesperado no envio para MyZap', {
           metadata: {
             idfila: mensagem?.idfila,
