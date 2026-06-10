@@ -41,6 +41,13 @@ function markTicketAsPrinted(ticketKey, now = Date.now()) {
   recentPrintedTickets.set(ticketKey, now);
 }
 
+let imprimindoAgora = false;
+
+/** Status para o updater nao reiniciar o app no MEIO de uma impressao. */
+function getTicketWatcherStatus() {
+  return { ativo, imprimindoAgora };
+}
+
 async function startWatcher() {
   if (ativo) return;
   ativo = true;
@@ -52,6 +59,7 @@ async function startWatcher() {
   while (ativo) {
     try {
       const tickets = await consultarTickets();
+      imprimindoAgora = Array.isArray(tickets) && tickets.length > 0;
       debug('Tickets consultados', { metadata: { quantidade: tickets.length } });
       const impressoraPadrao = store.get('printer'); // Impressora padrão das configurações
       cleanupRecentPrintedTickets();
@@ -182,4 +190,4 @@ function delay(ms) {
   return new Promise(res => setTimeout(res, ms));
 }
 
-module.exports = { startWatcher, stopWatcher };
+module.exports = { startWatcher, stopWatcher, getTicketWatcherStatus };

@@ -385,18 +385,14 @@ function registerMyZapHandlers(ipcMain) {
         try {
             const { TOKEN = '', OPENAI_API_KEY = '', EMAIL_TOKEN = '' } = secrets || {};
             const myzapDir = String(envStore.get('myzap_diretorio') || '').trim();
-            const templatePath = path.join(__dirname, '..', 'myzap', 'configs', '.env');
             const targets = [];
             if (myzapDir && fs.existsSync(path.join(myzapDir, '.env'))) {
                 targets.push(path.join(myzapDir, '.env'));
             }
-            if (fs.existsSync(templatePath)) {
-                targets.push(templatePath);
-            }
 
             // Sempre atualiza myzap_envContent no store para que futuras instalacoes carreguem os segredos
             const storedEnv = String(envStore.get('myzap_envContent') || '').trim();
-            const templateEnv = fs.existsSync(templatePath) ? fs.readFileSync(templatePath, 'utf8') : '';
+            const templateEnv = '';
             let baseEnv = storedEnv || templateEnv;
             if (baseEnv) {
                 baseEnv = baseEnv.replace(/^TOKEN=.*$/m, `TOKEN="${TOKEN}"`);
@@ -441,12 +437,9 @@ function registerMyZapHandlers(ipcMain) {
         try {
             const myzapDir = String(envStore.get('myzap_diretorio') || '').trim();
             const localEnv = myzapDir ? path.join(myzapDir, '.env') : '';
-            const templateEnv = path.join(__dirname, '..', 'myzap', 'configs', '.env');
-            let envContent = '';
+                        let envContent = '';
             if (localEnv && fs.existsSync(localEnv)) {
                 envContent = fs.readFileSync(localEnv, 'utf8');
-            } else if (fs.existsSync(templateEnv)) {
-                envContent = fs.readFileSync(templateEnv, 'utf8');
             }
             // Fallback ao store: apos reset os arquivos sao apagados,
             // mas myzap_envContent ainda guarda os segredos configurados

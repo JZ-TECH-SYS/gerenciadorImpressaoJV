@@ -5,3 +5,8 @@ dist
 myzap.zip
 nul
 tmpclaude-*
+
+# Segredos/dados locais do MyZap — NUNCA comitar (seed versionado = db.seed.sqlite)
+core/myzap/configs/.env
+core/myzap/configs/db.sqlite
+core/myzap/database/

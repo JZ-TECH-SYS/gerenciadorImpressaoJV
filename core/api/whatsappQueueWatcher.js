@@ -2,7 +2,8 @@ const Store = require('electron-store');
 const { info, warn, error } = require('../myzap/myzapLogger');
 
 const store = new Store();
-const MYZAP_API_URL = 'http://localhost:5555/';
+// 127.0.0.1 (e nao localhost: pode resolver ::1 no Windows e dar timeout)
+const MYZAP_API_URL = 'http://127.0.0.1:5555/';
 const LOOP_INTERVAL_MS = 3000;
 const FETCH_TIMEOUT_MS = 15000;
 const PROCESSANDO_TIMEOUT_MS = 120000;
@@ -18,6 +19,42 @@ let ultimosPendentes = [];
 let consecutiveSkips = 0;
 let ciclosSemMovimento = 0;
 const MAX_CONSECUTIVE_SKIPS = 10;
+
+// Pausa RECUPERAVEL no lugar do antigo auto-stop definitivo.
+let motivoPausa = null;
+let notifyCallback = null;
+let ultimoToastPausaAt = 0;
+const PAUSA_TOAST_COOLDOWN_MS = 10 * 60 * 1000;
+
+function setQueueNotifier(fn) {
+  notifyCallback = (typeof fn === 'function') ? fn : null;
+}
+
+function notificarFila(mensagem, { comCooldown = false } = {}) {
+  if (!notifyCallback) return;
+  if (comCooldown) {
+    const agora = Date.now();
+    if (agora - ultimoToastPausaAt < PAUSA_TOAST_COOLDOWN_MS) return;
+    ultimoToastPausaAt = agora;
+  }
+  try { notifyCallback(mensagem); } catch (_e) { /* melhor esforco */ }
+}
+
+function entrarEmPausa(motivo, mensagem) {
+  if (motivoPausa === motivo) return;
+  motivoPausa = motivo;
+  warn(`[FilaMyZap] Fila pausada (${motivo}) — retoma sozinha quando resolver`, {
+    metadata: { motivo, consecutiveSkips }
+  });
+  notificarFila(mensagem, { comCooldown: true });
+}
+
+function sairDaPausa() {
+  if (!motivoPausa) return;
+  motivoPausa = null;
+  info('[FilaMyZap] Fila retomada automaticamente', { metadata: { area: 'whatsappQueueWatcher' } });
+  notificarFila('Fila de mensagens retomada: MyZap respondendo novamente.');
+}
 const SKIP_LOG_EVERY = 5;
 const IDLE_LOG_EVERY = 20;
 
@@ -253,10 +290,8 @@ async function processarFilaUmaRodada() {
         });
       }
       if (consecutiveSkips >= MAX_CONSECUTIVE_SKIPS) {
-        warn(`[FilaMyZap] Auto-stop: ${MAX_CONSECUTIVE_SKIPS} skips consecutivos`, {
-          metadata: { area: 'whatsappQueueWatcher' }
-        });
-        stopWhatsappQueueWatcher();
+        entrarEmPausa('aguardando_credenciais',
+          'Fila de mensagens pausada: aguardando credenciais do MyZap. Ela retoma sozinha.');
       }
       return;
     }
@@ -270,16 +305,15 @@ async function processarFilaUmaRodada() {
         });
       }
       if (consecutiveSkips >= MAX_CONSECUTIVE_SKIPS) {
-        warn(`[FilaMyZap] Auto-stop: ${MAX_CONSECUTIVE_SKIPS} skips consecutivos (MyZap down)`, {
-          metadata: { area: 'whatsappQueueWatcher' }
-        });
-        stopWhatsappQueueWatcher();
+        entrarEmPausa('aguardando_myzap',
+          'Fila de mensagens pausada: aguardando o MyZap voltar a responder. Ela retoma sozinha.');
       }
       return;
     }
 
     // MyZap ok, reset skip counter
     consecutiveSkips = 0;
+    sairDaPausa();
 
     const pendentes = await listarPendentesMyZap();
     ultimosPendentes = Array.isArray(pendentes) ? pendentes : [];
@@ -563,6 +597,7 @@ async function enviarTesteParaProprioNumero() {
 }
 
 module.exports = {
+  setQueueNotifier,
   listarPendentesMyZap,
   getUltimosPendentesMyZap,
   startWhatsappQueueWatcher,

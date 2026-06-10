@@ -1,7 +1,7 @@
 {
   "name": "jv-printer",
   "description": "Gerenciador de impressão ClickExpress e WhatsApp",
-  "version": "3.3.3",
+  "version": "3.4.0",
   "main": "main.js",
   "author": {
     "name": "joaosn",
@@ -27,7 +27,9 @@
     "electron-log": "^5.4.3",
     "electron-store": "^4.0.0",
     "electron-updater": "^6.6.2",
-    "fix-path": "^2.1.0"
+    "fix-path": "^2.1.0",
+    "extract-zip": "^2.0.1",
+    "pnpm": "10.29.3"
   },
   "devDependencies": {
     "electron": "*",
@@ -58,12 +60,13 @@
       "artifactName": "jv-printer-Setup-${version}.${ext}"
     },
     "nsis": {
-      "oneClick": false,
-      "perMachine": true,
-      "allowToChangeInstallationDirectory": true,
+      "oneClick": true,
+      "perMachine": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "JV Printer"
+      "shortcutName": "JV Printer",
+      "runAfterFinish": true,
+      "include": "build/installer.nsh"
     },
     "linux": {
       "target": [
@@ -91,6 +94,9 @@
         "owner": "JZ-TECH-SYS",
         "repo": "gerenciadorImpressaoJV"
       }
+    ],
+    "asarUnpack": [
+      "node_modules/pnpm/**"
     ]
   }
 }

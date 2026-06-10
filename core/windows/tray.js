@@ -1,6 +1,7 @@
-const { Menu, Tray } = require('electron');
+const { Menu, Tray, Notification, nativeImage } = require('electron');
 
 let trayInstance = null;
+let trayIconPath = null;
 let actions = null;
 let getPrinting = () => false;
 let getMyzapStatus = () => 'desconhecido';
@@ -12,6 +13,7 @@ function buildMenuTemplate(printing, myzapAtivo, callbacks) {
     togglePrint,
     toggleMyzap,
     updateMyZapNow,
+    repararMyZapAgora,
     createTestPrint,
     openLogViewer,
     abrirPastaLogs,
@@ -47,6 +49,11 @@ function buildMenuTemplate(printing, myzapAtivo, callbacks) {
         : '🔴  MyZap pausado',
       click: toggleMyzap
     },
+    {
+      label: '🛠️  Reparar MyZap agora',
+      click: () => repararMyZapAgora?.(),
+      enabled: !!repararMyZapAgora
+    },
     { label: '🔄  Atualizar MyZap agora', click: updateMyZapNow },
     { label: '💬  Painel MyZap', click: createPainelMyZap },
     { label: '📬  Fila de mensagens', click: createFilaMyZap },
@@ -79,6 +86,7 @@ function init(iconPath, callbackSet, printingState, version = '?.?.?', myzapStat
     getMyzapStatus = myzapStatusState;
   }
 
+  trayIconPath = iconPath;
   trayInstance = new Tray(iconPath);
   trayInstance.setToolTip(`JV-Printer  v${version}`);
   rebuildMenu();
@@ -94,7 +102,34 @@ function rebuildMenu() {
   trayInstance.setContextMenu(menu);
 }
 
+/**
+ * Notificacao para o usuario a partir da bandeja: balao nativo no Windows,
+ * Notification do Electron nas demais plataformas (ou se o balao falhar).
+ */
+function notify(message, title = 'JV Printer') {
+  const body = String(message || '').trim();
+  if (!body) {
+    return;
+  }
+
+  if (process.platform === 'win32' && trayInstance) {
+    try {
+      trayInstance.displayBalloon({
+        title,
+        content: body,
+        icon: trayIconPath ? nativeImage.createFromPath(trayIconPath) : undefined
+      });
+      return;
+    } catch (_e) { /* cai no fallback */ }
+  }
+
+  try {
+    new Notification({ title, body, icon: trayIconPath || undefined }).show();
+  } catch (_e) { /* melhor esforco */ }
+}
+
 module.exports = {
+  notify,
   init,
   rebuildMenu
 };

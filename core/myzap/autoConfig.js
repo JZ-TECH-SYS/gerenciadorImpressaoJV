@@ -14,6 +14,8 @@ const clonarRepositorio = require('./clonarRepositorio');
 const atualizarEnv = require('./atualizarEnv');
 const updateIaConfig = require('./api/updateIaConfig');
 const { transition, forceTransition, getState } = require('./stateMachine');
+const { withLifecycleLock } = require('./opLock');
+const { getOrCreateLocalToken, buildEnvContent } = require('./envTemplate');
 
 const store = new Store();
 const REMOTE_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
@@ -565,8 +567,8 @@ async function prepareAutoConfig(options = {}) {
     const envContent = (
         remote?.data?.envContent
         || currentEnvContent
-        || getBundledEnvContent()
-        || (sessionKey && myzapApiToken ? buildDefaultEnv({ sessionKey, myzapApiToken }) : '')
+        || buildEnvContent({ token: getOrCreateLocalToken(store, myzapDiretorio) })
+        
     ).trim();
 
     // Sincronizar myzap_apiToken com o TOKEN real do .env
@@ -678,24 +680,14 @@ async function syncIaSettingsInMyZap(preparedData = {}) {
 
 async function ensureMyZapReadyAndStart(options = {}) {
     if (ensureInFlight) {
-        // Detecta operacao travada (stale) apos 2 minutos
-        const elapsed = Date.now() - ensureInFlightStartedAt;
-        if (elapsed > ENSURE_STALE_TIMEOUT_MS) {
-            warn('ensureMyZapReadyAndStart: operacao anterior considerada stale, resetando', {
-                metadata: { area: 'autoConfig', elapsedMs: elapsed }
-            });
-            ensureInFlight = null;
-            ensureInFlightStartedAt = 0;
-        } else {
-            info('MyZap start: operacao ja em andamento, aguardando mesma execucao', {
-                metadata: { area: 'autoConfig', options, elapsedMs: elapsed }
-            });
-            return ensureInFlight;
-        }
+        info('MyZap start: operacao ja em andamento, aguardando mesma execucao', {
+            metadata: { area: 'autoConfig', options }
+        });
+        return ensureInFlight;
     }
 
     ensureInFlightStartedAt = Date.now();
-    ensureInFlight = (async () => {
+    ensureInFlight = withLifecycleLock('ensure', async () => {
         try {
             transition('checking_config', { message: 'Iniciando sincronizacao do MyZap...' });
             startProgress('Iniciando sincronizacao do MyZap...', 'start', { options });
@@ -829,9 +821,8 @@ async function ensureMyZapReadyAndStart(options = {}) {
                 message: `Erro inesperado: ${fatalErr?.message || String(fatalErr)}`
             };
         }
-    })().finally(() => {
+    }).finally(() => {
         ensureInFlight = null;
-        ensureInFlightStartedAt = 0;
     });
 
     return ensureInFlight;
@@ -903,6 +894,8 @@ async function refreshRemoteConfigAndSyncIa() {
 }
 
 module.exports = {
+    resolveMyZapDirectory,
+    isValidInstalledMyZapDirectory,
     getDefaultMyZapDirectory,
     prepareAutoConfig,
     ensureMyZapReadyAndStart,
