@@ -1,7 +1,7 @@
 {
   "name": "jv-printer",
   "description": "Gerenciador de impressão ClickExpress e WhatsApp",
-  "version": "3.3.3",
+  "version": "4.0.0",
   "main": "main.js",
   "author": {
     "name": "joaosn",
@@ -15,38 +15,37 @@
     "pack": "electron-builder --dir",
     "build": "electron-builder",
     "dist": "electron-builder",
-    "dist:all": "npm run dist:win32 && npm run dist:win64",
-    "dist:win32": "electron-builder --win --ia32 --config.directories.output=dist/win32",
     "dist:win64": "electron-builder --win --x64 --config.directories.output=dist/win64",
     "dist:linux": "electron-builder --linux --x64",
-    "dist:linux-arm64": "electron-builder --linux --arm64",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
-    "adm-zip": "^0.5.16",
     "electron-log": "^5.4.3",
     "electron-store": "^4.0.0",
     "electron-updater": "^6.6.2",
-    "fix-path": "^2.1.0"
+    "extract-zip": "^2.0.1",
+    "fix-path": "^2.1.0",
+    "pnpm": "10.29.3"
   },
   "devDependencies": {
-    "electron": "*",
+    "electron": "40.6.0",
     "electron-builder": "^24.11.0",
     "eslint": "^8.57.1",
     "eslint-config-airbnb-base": "^15.0.0",
     "eslint-plugin-import": "^2.32.0",
-    "nodemon": "^3.1.10",
-    "sharp": "^0.34.5"
+    "nodemon": "^3.1.10"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "electron",
-      "sharp"
+      "electron"
     ]
   },
   "build": {
     "appId": "com.jvtech.printer",
     "productName": "jv-printer",
+    "asarUnpack": [
+      "node_modules/pnpm/**"
+    ],
     "directories": {
       "output": "dist"
     },
@@ -58,12 +57,13 @@
       "artifactName": "jv-printer-Setup-${version}.${ext}"
     },
     "nsis": {
-      "oneClick": false,
-      "perMachine": true,
-      "allowToChangeInstallationDirectory": true,
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "JV Printer"
+      "shortcutName": "JV Printer",
+      "include": "build/installer.nsh"
     },
     "linux": {
       "target": [

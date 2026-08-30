@@ -1,88 +1,73 @@
-const { Menu, Tray } = require('electron');
+/**
+ * Bandeja MINIMALISTA (v4). Abre o painel e resolve as urgencias reais:
+ * pausar IMPRESSAO, pausar envio, buscar atualizacao. Todo o resto vive na
+ * janela unica.
+ */
+
+const { Menu, Tray, Notification, nativeImage } = require('electron');
 
 let trayInstance = null;
 let actions = null;
-let getPrinting = () => false;
-let getMyzapStatus = () => 'desconhecido';
+let states = { impressaoAtiva: () => true, envioAtivo: () => true };
 let appVersion = '?.?.?';
+let trayIconPath = null;
 
-function buildMenuTemplate(printing, myzapAtivo, callbacks) {
-  const {
-    createSettings,
-    togglePrint,
-    toggleMyzap,
-    updateMyZapNow,
-    createTestPrint,
-    openLogViewer,
-    abrirPastaLogs,
-    abrirAjuda,
-    checkUpdates,
-    createPainelMyZap,
-    createFilaMyZap
-  } = callbacks;
+function buildMenuTemplate(callbacks) {
+  const { openPanel, togglePrinting, toggleEnvio, checkAllUpdates } = callbacks;
+  const impressaoAtiva = states.impressaoAtiva();
+  const envioAtivo = states.envioAtivo();
 
   return [
-    // ── Cabeçalho ──────────────────────────────────────
-    { label: '🖨️  JV-Printer', enabled: false },
-    { label: `      v${appVersion}`, enabled: false },
+    { label: `JV Printer  v${appVersion}`, enabled: false },
     { type: 'separator' },
-
-    // ── Impressão ──────────────────────────────────────
-    { label: '── Impressão ──', enabled: false },
+    { label: 'Abrir painel', click: () => openPanel?.() },
     {
-      label: printing
-        ? '🟢  Impressão ativa'
-        : '🔴  Impressão pausada',
-      click: togglePrint
+      label: impressaoAtiva ? 'Pausar impressao' : 'Retomar impressao',
+      click: () => togglePrinting?.()
     },
-    { label: '⚙️   Configurações', click: createSettings },
-    { label: '🖨️   Teste de impressão', click: createTestPrint },
-    { type: 'separator' },
-
-    // ── WhatsApp ───────────────────────────────────────
-    { label: '── WhatsApp ──', enabled: false },
     {
-      label: myzapAtivo
-        ? '🟢  MyZap ativo'
-        : '🔴  MyZap pausado',
-      click: toggleMyzap
+      label: envioAtivo ? 'Pausar envio de mensagens' : 'Retomar envio de mensagens',
+      click: () => toggleEnvio?.()
     },
-    { label: '🔄  Atualizar MyZap agora', click: updateMyZapNow },
-    { label: '💬  Painel MyZap', click: createPainelMyZap },
-    { label: '📬  Fila de mensagens', click: createFilaMyZap },
+    { label: 'Buscar atualizacao', click: () => checkAllUpdates?.() },
     { type: 'separator' },
-
-    // ── Sistema ────────────────────────────────────────
-    { label: '── Sistema ──', enabled: false },
-    { label: '📋  Ver logs', click: openLogViewer },
-    { label: '📁  Pasta de logs', click: abrirPastaLogs },
-    { label: '❓  Ajuda / Problemas', click: abrirAjuda },
-    {
-      label: '🔄  Verificar atualização',
-      click: () => checkUpdates?.(),
-      enabled: !!checkUpdates
-    },
-    { type: 'separator' },
-
-    // ── Sair ───────────────────────────────────────────
-    { label: '🚪  Sair', role: 'quit' }
+    { label: 'Sair', role: 'quit' }
   ];
 }
 
-function init(iconPath, callbackSet, printingState, version = '?.?.?', myzapStatusState) {
+function init(iconPath, callbackSet, version = '?.?.?', stateGetters = {}) {
   actions = callbackSet;
   appVersion = version;
-  if (typeof printingState === 'function') {
-    getPrinting = printingState;
-  }
-  if (typeof myzapStatusState === 'function') {
-    getMyzapStatus = myzapStatusState;
-  }
+  trayIconPath = iconPath;
+  states = { ...states, ...stateGetters };
 
   trayInstance = new Tray(iconPath);
-  trayInstance.setToolTip(`JV-Printer  v${version}`);
+  trayInstance.setToolTip(`JV Printer  v${version}`);
+  trayInstance.on('double-click', () => actions?.openPanel?.());
   rebuildMenu();
   return trayInstance;
+}
+
+function notify(message, title = 'JV Printer') {
+  const body = String(message || '').trim();
+  if (!body) {
+    return;
+  }
+
+  if (process.platform === 'win32' && trayInstance) {
+    try {
+      trayInstance.displayBalloon({
+        title,
+        content: body,
+        icon: trayIconPath ? nativeImage.createFromPath(trayIconPath) : undefined
+      });
+      return;
+    } catch (_e) { /* cai no fallback */ }
+  }
+
+  try {
+    new Notification({ title, body, icon: trayIconPath || undefined }).show();
+  } catch (_e) { /* melhor esforco */ }
 }
 
 function rebuildMenu() {
@@ -90,11 +75,12 @@ function rebuildMenu() {
     return;
   }
 
-  const menu = Menu.buildFromTemplate(buildMenuTemplate(getPrinting(), getMyzapStatus(), actions));
+  const menu = Menu.buildFromTemplate(buildMenuTemplate(actions));
   trayInstance.setContextMenu(menu);
 }
 
 module.exports = {
   init,
-  rebuildMenu
+  rebuildMenu,
+  notify
 };

@@ -14,13 +14,94 @@ const clonarRepositorio = require('./clonarRepositorio');
 const atualizarEnv = require('./atualizarEnv');
 const updateIaConfig = require('./api/updateIaConfig');
 const { transition, forceTransition, getState } = require('./stateMachine');
+const { withLifecycleLock } = require('./opLock');
+const { getOrCreateLocalToken, buildEnvContent } = require('./envTemplate');
+const {
+    parseBooleanLike,
+    buildBackendProfileKey,
+    clearDerivedBackendState,
+    extractCapabilityHintsFromFlatMap,
+    getCapabilitySnapshot,
+    getStoredCapabilityRemoteHints,
+    refreshCapabilitySnapshotFromStore,
+    setStoredCapabilityRemoteHints,
+    sanitizeBackendApiUrl
+} = require('./capabilities');
 
 const store = new Store();
 const REMOTE_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const LAST_REMOTE_SYNC_KEY = 'myzap_lastRemoteConfigSyncAt';
-const ENSURE_STALE_TIMEOUT_MS = 2 * 60 * 1000;
+const MAX_DEBUG_TEXT_LENGTH = 12000;
+const MAX_DEBUG_ITEMS = 80;
 let ensureInFlight = null;
-let ensureInFlightStartedAt = 0;
+let lastRemoteConfigDebug = {
+    generatedAt: Date.now(),
+    success: false,
+    reason: 'not_requested',
+    attempts: []
+};
+
+function cloneJsonSafe(value, fallback = null) {
+    try {
+        return JSON.parse(JSON.stringify(value));
+    } catch (_e) {
+        return fallback;
+    }
+}
+
+function truncateText(value, maxLen = MAX_DEBUG_TEXT_LENGTH) {
+    const str = String(value ?? '');
+    if (str.length <= maxLen) return str;
+    return `${str.slice(0, maxLen)} ...[truncated ${str.length - maxLen} chars]`;
+}
+
+function truncateDebugValue(value, depth = 0) {
+    if (value === null || value === undefined) return value;
+    if (depth >= 6) return '[max_depth]';
+
+    if (typeof value === 'string') {
+        return truncateText(value);
+    }
+
+    if (Array.isArray(value)) {
+        const sliced = value.slice(0, MAX_DEBUG_ITEMS).map((item) => truncateDebugValue(item, depth + 1));
+        if (value.length > MAX_DEBUG_ITEMS) {
+            sliced.push(`[truncated_items:${value.length - MAX_DEBUG_ITEMS}]`);
+        }
+        return sliced;
+    }
+
+    if (typeof value === 'object') {
+        const entries = Object.entries(value).slice(0, MAX_DEBUG_ITEMS);
+        const out = {};
+        entries.forEach(([key, val]) => {
+            out[key] = truncateDebugValue(val, depth + 1);
+        });
+        const total = Object.keys(value).length;
+        if (total > MAX_DEBUG_ITEMS) {
+            out.__truncated_fields = total - MAX_DEBUG_ITEMS;
+        }
+        return out;
+    }
+
+    return value;
+}
+
+function setLastRemoteConfigDebug(snapshot) {
+    const normalized = cloneJsonSafe(snapshot, null);
+    if (normalized) {
+        lastRemoteConfigDebug = normalized;
+    }
+}
+
+function getAutoConfigDebugSnapshot() {
+    return cloneJsonSafe(lastRemoteConfigDebug, {
+        generatedAt: Date.now(),
+        success: false,
+        reason: 'snapshot_unavailable',
+        attempts: []
+    });
+}
 
 function normalizeBaseUrl(url) {
     if (!url || typeof url !== 'string') return '';
@@ -148,23 +229,6 @@ function pickFirst(map, keys = []) {
     return '';
 }
 
-function parseBooleanLike(value, defaultValue = false) {
-    if (value === undefined || value === null || value === '') {
-        return defaultValue;
-    }
-
-    const normalized = String(value).trim().toLowerCase();
-    if (['1', 'true', 'sim', 'yes', 'y', 'on', 'ativo'].includes(normalized)) {
-        return true;
-    }
-
-    if (['0', 'false', 'nao', 'no', 'off', 'inativo'].includes(normalized)) {
-        return false;
-    }
-
-    return defaultValue;
-}
-
 function normalizeIntegrationMode(value) {
     const raw = String(value || '').trim().toLowerCase();
     if (!raw) return '';
@@ -183,34 +247,6 @@ function normalizeIntegrationMode(value) {
         return 'web';
     }
 
-    return '';
-}
-
-function buildDefaultEnv({ sessionKey, myzapApiToken }) {
-    return [
-        '# Arquivo .env gerado automaticamente pelo JV-Printer',
-        'NODE_ENV=production',
-        'PORT=5555',
-        '',
-        `SESSION_NAME=${sessionKey}`,
-        `SESSION_KEY=${sessionKey}`,
-        `SESSIONKEY=${sessionKey}`,
-        '',
-        `API_TOKEN=${myzapApiToken}`,
-        `APITOKEN=${myzapApiToken}`,
-        ''
-    ].join('\n');
-}
-
-function getBundledEnvContent() {
-    const envPath = path.join(__dirname, 'configs', '.env');
-    try {
-        if (fs.existsSync(envPath)) {
-            return fs.readFileSync(envPath, 'utf8');
-        }
-    } catch (_e) {
-        // fallback para default dinÃ¢mico
-    }
     return '';
 }
 
@@ -236,20 +272,37 @@ async function requestJson(url, token) {
             signal: ctrl.signal
         });
 
-        const body = await res.json().catch(() => ({}));
+        const contentType = String(res.headers.get('content-type') || '').trim();
+        const rawBody = await res.text().catch(() => '');
+        let body = {};
+        let parseError = null;
+
+        if (rawBody && rawBody.trim()) {
+            try {
+                body = JSON.parse(rawBody);
+            } catch (err) {
+                parseError = err?.message || String(err);
+            }
+        }
+
         debug('MyZap config: resposta HTTP recebida', {
             metadata: {
                 area: 'autoConfig',
                 url,
                 status: res.status,
                 ok: res.ok,
+                contentType,
+                parseError,
                 elapsedMs: Date.now() - startedAt
             }
         });
         return {
             ok: res.ok,
             status: res.status,
-            body
+            body,
+            rawBody,
+            contentType,
+            parseError
         };
     } catch (error) {
         warn('MyZap config: falha de requisicao HTTP', {
@@ -264,6 +317,9 @@ async function requestJson(url, token) {
             ok: false,
             status: 0,
             body: {},
+            rawBody: '',
+            contentType: '',
+            parseError: null,
             error: error?.message || String(error)
         };
     } finally {
@@ -334,14 +390,24 @@ async function fetchRemoteMyZapCredentials({ apiBaseUrl, bearerToken, idempresa 
         'env'
     ];
 
-    const clickApiCandidates = [
+    const backendApiCandidates = [
+        'backendapiurl',
+        'backend_api_url',
+        'apiurlbackend',
+        'api_url_backend',
+        'apiurlempresa',
         'clickexpressapiurl',
         'clickexpress_api_url',
         'click_api_url',
         'apiurlclickexpress'
     ];
 
-    const clickTokenCandidates = [
+    const backendTokenCandidates = [
+        'backendapitoken',
+        'backend_api_token',
+        'backendtoken',
+        'backend_token',
+        'tokenbackend',
         'clickexpressqueuetoken',
         'clickexpress_queue_token',
         'clickqueuetoken',
@@ -405,16 +471,41 @@ async function fetchRemoteMyZapCredentials({ apiBaseUrl, bearerToken, idempresa 
     ];
 
     const attempts = [];
+    const debugRun = {
+        generatedAt: Date.now(),
+        idempresa,
+        apiBaseUrl,
+        success: false,
+        reason: 'credentials_not_found',
+        selectedEndpoint: null,
+        selectedData: null,
+        attempts: []
+    };
 
     for (const endpoint of endpoints) {
         const url = `${apiBaseUrl}${endpoint}`;
         const response = await requestJson(url, bearerToken);
-        attempts.push({
+        const responseBodyForDebug = (
+            response?.body
+            && typeof response.body === 'object'
+            && Object.keys(response.body).length > 0
+        )
+            ? truncateDebugValue(response.body)
+            : (String(response?.rawBody || '').trim() ? truncateText(response.rawBody) : null);
+
+        const attemptRecord = {
             endpoint,
+            url,
             status: response.status,
             ok: response.ok,
-            error: response.error || null
-        });
+            error: response.error || null,
+            contentType: response.contentType || null,
+            parseError: response.parseError || null,
+            body: responseBodyForDebug
+        };
+
+        attempts.push(attemptRecord);
+        debugRun.attempts.push(attemptRecord);
 
         debug('MyZap config: tentativa de endpoint', {
             metadata: {
@@ -423,7 +514,8 @@ async function fetchRemoteMyZapCredentials({ apiBaseUrl, bearerToken, idempresa 
                 endpoint,
                 status: response.status,
                 ok: response.ok,
-                error: response.error || null
+                error: response.error || null,
+                parseError: response.parseError || null
             }
         });
 
@@ -436,43 +528,57 @@ async function fetchRemoteMyZapCredentials({ apiBaseUrl, bearerToken, idempresa 
         const sessionName = pickFirst(flat, sessionNameCandidates);
         const myzapApiToken = pickFirst(flat, myzapTokenCandidates);
         const envContent = pickFirst(flat, envCandidates);
-        const clickApiUrl = pickFirst(flat, clickApiCandidates);
-        const clickQueueToken = pickFirst(flat, clickTokenCandidates);
+        const backendApiUrlRaw = pickFirst(flat, backendApiCandidates);
+        const backendApiUrl = sanitizeBackendApiUrl(backendApiUrlRaw, apiBaseUrl);
+        const backendApiToken = pickFirst(flat, backendTokenCandidates);
         const promptId = pickFirst(flat, promptIdCandidates);
         const iaAtiva = pickFirst(flat, iaAtivaCandidates);
         const modoIntegracao = pickFirst(flat, modoIntegracaoCandidates);
         const modoIntegracaoId = pickFirst(flat, modoIntegracaoIdCandidates);
         const rodarLocal = pickFirst(flat, rodarLocalCandidates);
+        const capabilityHints = extractCapabilityHintsFromFlatMap(flat);
 
         if (sessionKey && myzapApiToken) {
+            const resolvedData = {
+                sessionKey,
+                sessionName,
+                myzapApiToken,
+                envContent,
+                backendApiUrl,
+                backendApiToken,
+                promptId,
+                iaAtiva,
+                modoIntegracao,
+                modoIntegracaoId,
+                rodarLocal,
+                capabilityHints
+            };
+
+            debugRun.success = true;
+            debugRun.reason = 'credentials_found';
+            debugRun.selectedEndpoint = endpoint;
+            debugRun.selectedData = truncateDebugValue(resolvedData);
+            setLastRemoteConfigDebug(debugRun);
+
             info('MyZap config: credenciais remotas obtidas com sucesso', {
                 metadata: {
                     area: 'autoConfig',
                     idempresa,
                     endpoint,
                     hasPromptId: !!promptId,
-                    hasIaAtiva: iaAtiva !== ''
+                    hasIaAtiva: iaAtiva !== '',
+                    capabilityHints
                 }
             });
             return {
                 ok: true,
-                data: {
-                    sessionKey,
-                    sessionName,
-                    myzapApiToken,
-                    envContent,
-                    clickApiUrl,
-                    clickQueueToken,
-                    promptId,
-                    iaAtiva,
-                    modoIntegracao,
-                    modoIntegracaoId,
-                    rodarLocal
-                },
+                data: resolvedData,
                 attempts
             };
         }
     }
+
+    setLastRemoteConfigDebug(debugRun);
 
     warn('MyZap config: nenhum endpoint retornou credenciais validas', {
         metadata: {
@@ -505,20 +611,48 @@ async function prepareAutoConfig(options = {}) {
     const base = getBaseCompanyConfig();
 
     if (!base.apiUrl || !base.apiToken || !base.idempresa) {
+        setLastRemoteConfigDebug({
+            generatedAt: Date.now(),
+            success: false,
+            reason: 'missing_base_config',
+            baseConfig: {
+                hasApiUrl: !!base.apiUrl,
+                hasApiToken: !!base.apiToken,
+                hasIdempresa: !!base.idempresa
+            },
+            attempts: []
+        });
         return {
             status: 'error',
             message: 'Configure ID da empresa, URL da API e token nas configuracoes principais antes de iniciar o MyZap.'
         };
     }
 
+    const backendProfileKey = buildBackendProfileKey(base);
+    const storedBackendProfileKey = String(store.get('myzap_backendProfileKey') || '').trim();
+    if (backendProfileKey && storedBackendProfileKey && storedBackendProfileKey !== backendProfileKey) {
+        info('MyZap config: backend principal alterado, invalidando cache remoto derivado', {
+            metadata: {
+                area: 'autoConfig',
+                previousBackendProfileKey: storedBackendProfileKey,
+                nextBackendProfileKey: backendProfileKey
+            }
+        });
+        clearDerivedBackendState(store);
+        store.set('myzap_backendProfileKey', backendProfileKey);
+    }
+
     const myzapDirectoryResolution = resolveMyZapDirectory();
     const myzapDiretorio = myzapDirectoryResolution.dir;
+    const currentCapabilitySnapshot = getCapabilitySnapshot(store);
+    const currentRemoteHints = getStoredCapabilityRemoteHints(store);
     const currentSessionKey = String(store.get('myzap_sessionKey') || '').trim();
     const currentSessionName = String(store.get('myzap_sessionName') || '').trim();
     const currentMyzapApiToken = String(store.get('myzap_apiToken') || '').trim();
     const currentEnvContent = String(store.get('myzap_envContent') || '').trim();
     const currentPromptId = String(store.get('myzap_promptId') || '').trim();
-    const currentIaAtiva = parseBooleanLike(store.get('myzap_iaAtiva'), false);
+    const currentIaAtivaRaw = store.get('myzap_iaAtiva');
+    const currentIaAtiva = parseBooleanLike(currentIaAtivaRaw, false);
     const currentModoIntegracao = normalizeIntegrationMode(store.get('myzap_modoIntegracao')) || 'local';
     const currentRemoteConfigOk = Boolean(store.get('myzap_remoteConfigOk'));
     const currentRemoteConfigCheckedAt = Number(store.get('myzap_remoteConfigCheckedAt') || 0);
@@ -533,6 +667,10 @@ async function prepareAutoConfig(options = {}) {
             idempresa: base.idempresa
         })
         : { ok: false, attempts: [] };
+    const remoteFetched = Boolean(remote?.ok);
+    const remoteHints = remoteFetched
+        ? setStoredCapabilityRemoteHints(remote?.data?.capabilityHints || {}, store)
+        : currentRemoteHints;
 
     if (shouldFetchRemote && !remote?.ok) {
         warn('MyZap config: nao foi possivel atualizar dados remotos, aplicando fallback de cache local', {
@@ -549,10 +687,29 @@ async function prepareAutoConfig(options = {}) {
     const sessionKey = (remote?.data?.sessionKey || currentSessionKey || '').trim();
     const sessionName = (remote?.data?.sessionName || currentSessionName || sessionKey || '').trim();
     let myzapApiToken = (remote?.data?.myzapApiToken || currentMyzapApiToken || '').trim();
-    const clickApiUrl = normalizeBaseUrl((remote?.data?.clickApiUrl || base.apiUrl || '').trim());
-    const clickQueueToken = (remote?.data?.clickQueueToken || base.apiToken || '').trim();
-    const promptId = (remote?.data?.promptId || currentPromptId || '').trim();
-    const iaAtiva = parseBooleanLike(remote?.data?.iaAtiva, currentIaAtiva);
+    const backendApiUrl = normalizeBaseUrl((
+        sanitizeBackendApiUrl(remote?.data?.backendApiUrl, base.apiUrl)
+        || store.get('myzap_backendApiUrl')
+        || store.get('clickexpress_apiUrl')
+        || base.apiUrl
+        || ''
+    ).trim());
+    const backendApiToken = String(
+        remote?.data?.backendApiToken
+        || store.get('myzap_backendApiToken')
+        || store.get('clickexpress_queueToken')
+        || base.apiToken
+        || ''
+    ).trim();
+    const remotePromptId = remoteFetched ? String(remote?.data?.promptId || '').trim() : '';
+    const capabilityPromptId = remoteFetched ? remotePromptId : currentPromptId;
+    const rawPromptId = remoteFetched ? remotePromptId : (remote?.data?.promptId || currentPromptId || '');
+    let promptId = String(rawPromptId || '').trim();
+    const capabilityIaAtivaRaw = remoteFetched ? remote?.data?.iaAtiva : currentIaAtivaRaw;
+    let iaAtiva = parseBooleanLike(
+        remoteFetched ? remote?.data?.iaAtiva : currentIaAtivaRaw,
+        currentIaAtiva
+    );
     const remoteModoIntegracao = normalizeIntegrationMode(remote?.data?.modoIntegracao);
     const remoteModoIntegracaoId = normalizeIntegrationMode(remote?.data?.modoIntegracaoId);
     const remoteRodarLocal = parseBooleanLike(remote?.data?.rodarLocal, null);
@@ -562,11 +719,17 @@ async function prepareAutoConfig(options = {}) {
         || currentModoIntegracao
         || 'local';
     const rodarLocal = modoIntegracao === 'local';
+    // Precedencia do .env: backend remoto -> cache local -> template gerado
+    // em codigo com TOKEN unico desta maquina (sem segredos comitados).
     const envContent = (
         remote?.data?.envContent
         || currentEnvContent
-        || getBundledEnvContent()
-        || (sessionKey && myzapApiToken ? buildDefaultEnv({ sessionKey, myzapApiToken }) : '')
+        || buildEnvContent({
+            token: getOrCreateLocalToken(store, myzapDiretorio),
+            promptId,
+            openaiKey: '',
+            emailToken: ''
+        })
     ).trim();
 
     // Sincronizar myzap_apiToken com o TOKEN real do .env
@@ -581,6 +744,19 @@ async function prepareAutoConfig(options = {}) {
             });
             myzapApiToken = envToken;
         }
+    }
+
+    const capabilitySnapshot = refreshCapabilitySnapshotFromStore(store, {
+        previousSnapshot: currentCapabilitySnapshot,
+        remoteHints,
+        promptId: capabilityPromptId,
+        iaAtiva: capabilityIaAtivaRaw,
+        remoteFetchOk: remoteFetched
+    });
+
+    if (remoteFetched && !capabilitySnapshot?.supportsIaConfig?.enabled) {
+        promptId = '';
+        iaAtiva = false;
     }
 
     if (!sessionKey || !myzapApiToken) {
@@ -616,8 +792,13 @@ async function prepareAutoConfig(options = {}) {
         myzap_remoteConfigOk: shouldFetchRemote ? Boolean(remote?.ok) : currentRemoteConfigOk,
         myzap_remoteConfigCheckedAt: shouldFetchRemote ? Date.now() : currentRemoteConfigCheckedAt,
         [LAST_REMOTE_SYNC_KEY]: remote?.ok ? Date.now() : lastRemoteSyncAt,
-        clickexpress_apiUrl: clickApiUrl,
-        clickexpress_queueToken: clickQueueToken
+        myzap_backendProfileKey: backendProfileKey,
+        myzap_backendApiUrl: backendApiUrl,
+        myzap_backendApiToken: backendApiToken,
+        clickexpress_apiUrl: backendApiUrl,
+        clickexpress_queueToken: backendApiToken,
+        myzap_capabilityRemoteHints: remoteHints,
+        myzap_capabilitySnapshot: capabilitySnapshot
     };
 
     store.set(payload);
@@ -631,18 +812,37 @@ async function prepareAutoConfig(options = {}) {
             remoteIsStale,
             modoIntegracao,
             rodarLocal,
-            forceRemote
+            forceRemote,
+            capabilities: capabilitySnapshot
         }
     });
 
     return {
         status: 'success',
         message: 'Configuracao automatica do MyZap pronta.',
-        data: payload
+        data: {
+            ...payload,
+            myzap_capabilitySnapshot: capabilitySnapshot
+        }
     };
 }
 
 async function syncIaSettingsInMyZap(preparedData = {}) {
+    const capabilitySnapshot = preparedData?.myzap_capabilitySnapshot || getCapabilitySnapshot(store);
+    if (!capabilitySnapshot?.supportsIaConfig?.enabled) {
+        info('MyZap IA: sincronizacao ignorada porque a capability esta desabilitada ou ausente', {
+            metadata: {
+                area: 'autoConfig',
+                capability: capabilitySnapshot?.supportsIaConfig || null
+            }
+        });
+        return {
+            status: 'skipped',
+            reason: capabilitySnapshot?.supportsIaConfig?.reason || 'capability_disabled',
+            message: 'Configuracao de IA ignorada: recurso nao suportado ou desabilitado.'
+        };
+    }
+
     const maxRetries = 2;
     const retryDelayMs = 3000;
     let lastResult = null;
@@ -657,7 +857,7 @@ async function syncIaSettingsInMyZap(preparedData = {}) {
             sessionName: preparedData?.myzap_sessionName ?? store.get('myzap_sessionName')
         });
 
-        if (lastResult?.status === 'success') {
+        if (lastResult?.status === 'success' || lastResult?.status === 'skipped') {
             return lastResult;
         }
 
@@ -677,30 +877,21 @@ async function syncIaSettingsInMyZap(preparedData = {}) {
 }
 
 async function ensureMyZapReadyAndStart(options = {}) {
+    // Dedup: chamadas concorrentes recebem a MESMA promise em andamento.
+    // O controle de "operacao travada" agora e do opLock (heartbeat + stale),
+    // que nao mata um pnpm install legitimo de 10-15min em maquina fraca.
     if (ensureInFlight) {
-        // Detecta operacao travada (stale) apos 2 minutos
-        const elapsed = Date.now() - ensureInFlightStartedAt;
-        if (elapsed > ENSURE_STALE_TIMEOUT_MS) {
-            warn('ensureMyZapReadyAndStart: operacao anterior considerada stale, resetando', {
-                metadata: { area: 'autoConfig', elapsedMs: elapsed }
-            });
-            ensureInFlight = null;
-            ensureInFlightStartedAt = 0;
-        } else {
-            info('MyZap start: operacao ja em andamento, aguardando mesma execucao', {
-                metadata: { area: 'autoConfig', options, elapsedMs: elapsed }
-            });
-            return ensureInFlight;
-        }
+        info('MyZap start: operacao ja em andamento, aguardando mesma execucao', {
+            metadata: { area: 'autoConfig', options }
+        });
+        return ensureInFlight;
     }
 
-    ensureInFlightStartedAt = Date.now();
-    ensureInFlight = (async () => {
-        try {
-            transition('checking_config', { message: 'Iniciando sincronizacao do MyZap...' });
-            startProgress('Iniciando sincronizacao do MyZap...', 'start', { options });
+    ensureInFlight = withLifecycleLock('ensure', async () => {
+        transition('checking_config', { message: 'Iniciando sincronizacao do MyZap...' });
+        startProgress('Iniciando sincronizacao do MyZap...', 'start', { options });
 
-            const prep = await prepareAutoConfig(options);
+        const prep = await prepareAutoConfig(options);
         if (prep.status !== 'success') {
             warn('MyZap start: preparacao falhou', {
                 metadata: {
@@ -790,15 +981,24 @@ async function ensureMyZapReadyAndStart(options = {}) {
             return startResult;
         }
 
-        stepProgress('Sincronizando configuracoes de IA no MyZap local...', 'sync_ia', {
-            dirPath
-        });
         const syncIaResult = await syncIaSettingsInMyZap(prep.data);
-        info('MyZap start: ambiente local iniciado e sincronizacao de IA executada', {
+        if (syncIaResult?.status === 'skipped') {
+            stepProgress('Configuracoes opcionais de IA ignoradas por nao suportadas.', 'sync_ia', {
+                dirPath,
+                skipped: true,
+                reason: syncIaResult?.reason || null
+            });
+        } else {
+            stepProgress('Sincronizando configuracoes de IA no MyZap local...', 'sync_ia', {
+                dirPath
+            });
+        }
+        info('MyZap start: ambiente local iniciado e sincronizacao opcional de IA processada', {
             metadata: {
                 area: 'autoConfig',
                 dirPath,
-                syncIaStatus: syncIaResult?.status || 'error'
+                syncIaStatus: syncIaResult?.status || 'error',
+                syncIaReason: syncIaResult?.reason || null
             }
         });
 
@@ -812,26 +1012,8 @@ async function ensureMyZapReadyAndStart(options = {}) {
             syncIa: syncIaResult?.status || 'error',
             syncIaMessage: syncIaResult?.message || 'Falha ao sincronizar configuracao de IA.'
         };
-        } catch (fatalErr) {
-            warn('ensureMyZapReadyAndStart: erro fatal capturado (isolado)', {
-                metadata: {
-                    area: 'autoConfig',
-                    error: fatalErr?.message || String(fatalErr),
-                    stack: fatalErr?.stack
-                }
-            });
-            finishProgressError(
-                `Erro inesperado no fluxo do MyZap: ${fatalErr?.message || String(fatalErr)}`,
-                'fatal_error'
-            );
-            return {
-                status: 'error',
-                message: `Erro inesperado: ${fatalErr?.message || String(fatalErr)}`
-            };
-        }
-    })().finally(() => {
+    }).finally(() => {
         ensureInFlight = null;
-        ensureInFlightStartedAt = 0;
     });
 
     return ensureInFlight;
@@ -881,16 +1063,19 @@ async function refreshRemoteConfigAndSyncIa() {
     }
 
     const syncIaResult = await syncIaSettingsInMyZap(prep.data);
-    if (syncIaResult?.status === 'success') {
-        info('MyZap refresh: configuracao remota sincronizada com MyZap local', {
+    if (syncIaResult?.status === 'success' || syncIaResult?.status === 'skipped') {
+        info('MyZap refresh: configuracao remota processada com o MyZap local', {
             metadata: {
                 area: 'autoConfig',
-                modoIntegracao: prep?.data?.myzap_modoIntegracao
+                modoIntegracao: prep?.data?.myzap_modoIntegracao,
+                syncIaStatus: syncIaResult?.status || 'unknown'
             }
         });
         return {
             status: 'success',
-            message: 'Configuracao remota do MyZap atualizada e sincronizada.',
+            message: syncIaResult?.status === 'skipped'
+                ? 'Configuracao remota do MyZap atualizada. Recurso opcional de IA foi ignorado.'
+                : 'Configuracao remota do MyZap atualizada e sincronizada.',
             data: prep.data
         };
     }
@@ -904,6 +1089,9 @@ async function refreshRemoteConfigAndSyncIa() {
 
 module.exports = {
     getDefaultMyZapDirectory,
+    resolveMyZapDirectory,
+    isValidInstalledMyZapDirectory,
+    getAutoConfigDebugSnapshot,
     prepareAutoConfig,
     ensureMyZapReadyAndStart,
     refreshRemoteConfigAndSyncIa

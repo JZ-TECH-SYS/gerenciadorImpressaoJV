@@ -11,7 +11,10 @@ const LOG_CHANNELS = {
   system: 'log-sistema',
   printer: 'log-impressora',
   windows: 'log-impressora',
-  myzap: 'log-myzap'
+  myzap: 'log-myzap',
+  // v4: chamadas ao backend (fila/status/ritmo) separadas do canal myzap —
+  // mesmo desenho do gerenciadorMyzap (backendLogger).
+  backend: 'log-backend'
 };
 
 const LEVEL_LABEL = {
@@ -322,6 +325,26 @@ Data de criacao: ${new Date().toLocaleString('pt-BR')}
 limparLogsAntigos();
 criarArquivoAjuda();
 
+/**
+ * Remove logs com mais de 7 dias (v4). A funcao existia no gerenciadorMyzap
+ * e faltava aqui — sem ela os .jsonl cresciam para sempre no tmpdir.
+ */
+function limparLogsAntigos(diasRetencao = 7) {
+  try {
+    const limite = Date.now() - diasRetencao * 24 * 60 * 60 * 1000;
+    const dir = getCaminhoLogs();
+    for (const arquivo of fs.readdirSync(dir)) {
+      const fullPath = path.join(dir, arquivo);
+      try {
+        const st = fs.statSync(fullPath);
+        if (st.isFile() && st.mtimeMs < limite) {
+          fs.unlinkSync(fullPath);
+        }
+      } catch (_e) { /* melhor esforco por arquivo */ }
+    }
+  } catch (_e) { /* melhor esforco */ }
+}
+
 module.exports = {
   log,
   info,
@@ -334,6 +357,7 @@ module.exports = {
   getCaminhoLogs,
   abrirPastaLogs,
   criarArquivoAjuda,
+  limparLogsAntigos,
   getLogDir: getCaminhoLogs,
   LOG_DIR
 };

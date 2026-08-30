@@ -9,6 +9,35 @@ let ativo   = false;
 const RECENT_TICKET_TTL_MS = 15 * 1000;
 const recentPrintedTickets = new Map();
 
+// v4 — status para a UI (semaforo/aba Impressao). APENAS contadores
+// aditivos: nenhuma linha da logica de impressao foi alterada.
+let ultimaConsultaEm = null;
+let ultimaImpressaoEm = null;
+let ultimoTicketRef = null;
+let impressoesHoje = 0;
+let diaContagem = new Date().toDateString();
+let ultimoErroImpressao = null;
+
+function registrarImpressaoOk(ticketRef) {
+  const hoje = new Date().toDateString();
+  if (hoje !== diaContagem) { diaContagem = hoje; impressoesHoje = 0; }
+  impressoesHoje += 1;
+  ultimaImpressaoEm = new Date().toISOString();
+  ultimoTicketRef = ticketRef ?? null;
+  ultimoErroImpressao = null;
+}
+
+function getPrintingStatus() {
+  return {
+    ativo,
+    ultimaConsultaEm,
+    ultimaImpressaoEm,
+    ultimoTicketRef,
+    impressoesHoje: (new Date().toDateString() === diaContagem) ? impressoesHoje : 0,
+    ultimoErroImpressao
+  };
+}
+
 function cleanupRecentPrintedTickets(now = Date.now()) {
   for (const [key, timestamp] of recentPrintedTickets.entries()) {
     if ((now - timestamp) > RECENT_TICKET_TTL_MS) {
@@ -52,6 +81,7 @@ async function startWatcher() {
   while (ativo) {
     try {
       const tickets = await consultarTickets();
+      ultimaConsultaEm = new Date().toISOString();
       debug('Tickets consultados', { metadata: { quantidade: tickets.length } });
       const impressoraPadrao = store.get('printer'); // Impressora padrão das configurações
       cleanupRecentPrintedTickets();
@@ -145,6 +175,7 @@ async function startWatcher() {
           
           const resultado = await imprimirHTML({ msg: textoParaImprimir, printerName });
           markTicketAsPrinted(ticketKey);
+          registrarImpressaoOk(ticketRef);
           console.log(`[WATCHER] ✅ Impresso! Job ID: ${resultado.jobId}, Source: ${resultado.source}`);
           info('✅ Ticket impresso com sucesso', {
             metadata: {
@@ -156,6 +187,7 @@ async function startWatcher() {
             }
           });
         } catch (printErr) {
+          ultimoErroImpressao = { em: new Date().toISOString(), erro: printErr.message, ticket: getTicketReference(item) };
           console.error('[WATCHER] ❌ Erro ao imprimir:', printErr.message);
           error('❌ Erro ao imprimir ticket', {
             metadata: { error: printErr, ticket: getTicketReference(item) }
@@ -182,4 +214,4 @@ function delay(ms) {
   return new Promise(res => setTimeout(res, ms));
 }
 
-module.exports = { startWatcher, stopWatcher };
+module.exports = { startWatcher, stopWatcher, getPrintingStatus };
