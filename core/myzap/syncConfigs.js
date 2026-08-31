@@ -1,21 +1,19 @@
 const fs = require('fs');
 const path = require('path');
+const Store = require('electron-store');
 const { info, warn, error } = require('./myzapLogger');
+const { getOrCreateLocalToken, buildEnvContent } = require('./envTemplate');
+const { resolveDataDir } = require('./enginePaths');
 
-function getBundledEnvPath() {
-    return path.join(__dirname, 'configs', '.env');
-}
+const store = new Store();
 
-function getBundledDbPath() {
-    return path.join(__dirname, 'configs', 'db.sqlite');
-}
-
-function readBundledEnv() {
-    const envPath = getBundledEnvPath();
-    if (!fs.existsSync(envPath)) {
-        return '';
-    }
-    return fs.readFileSync(envPath, 'utf8');
+function getSeedDbPath(engineDir) {
+    // Semente do banco: preferir a do PACK (gerada pelas migrations no CI —
+    // sempre em dia com o codigo daquela versao). O db.seed.sqlite embutido
+    // no app fica como ultimo recurso para instalacoes legadas.
+    const packSeed = path.join(engineDir, 'seed', 'db.sqlite');
+    if (fs.existsSync(packSeed)) return packSeed;
+    return path.join(__dirname, 'configs', 'db.seed.sqlite');
 }
 
 function syncMyZapConfigs(dirPath, options = {}) {
@@ -30,21 +28,30 @@ function syncMyZapConfigs(dirPath, options = {}) {
         const overwriteDb = Boolean(options.overwriteDb);
         const envContent = String(options.envContent || '').trim();
 
-        const envDest = path.join(dirPath, '.env');
-        const bundledEnv = String(readBundledEnv() || '').trim();
-        const envToWrite = envContent || bundledEnv;
+        // .env e banco moram no diretorio de DADOS: no pack e o myzap-data ao
+        // lado (update de motor nunca encosta); no legado resolve para o
+        // proprio dirPath (comportamento antigo intacto).
+        const dataDir = resolveDataDir(dirPath);
+        fs.mkdirSync(dataDir, { recursive: true });
+
+        const envDest = path.join(dataDir, '.env');
+        // Sem conteudo explicito, gera o template em codigo com o TOKEN unico
+        // desta maquina (o antigo .env comitado com TOKEN compartilhado morreu).
+        const envToWrite = envContent || buildEnvContent({
+            token: getOrCreateLocalToken(store, dirPath)
+        });
 
         if (!envToWrite) {
             return {
                 status: 'error',
-                message: 'Arquivo .env padrao nao encontrado em core/myzap/configs/.env.'
+                message: 'Nao foi possivel montar o conteudo do .env do MyZap.'
             };
         }
 
         fs.writeFileSync(envDest, envToWrite, 'utf8');
 
-        const dbOrigem = getBundledDbPath();
-        const dbDestDir = path.join(dirPath, 'database');
+        const dbOrigem = getSeedDbPath(dirPath);
+        const dbDestDir = path.join(dataDir, 'database');
         const dbDestFile = path.join(dbDestDir, 'db.sqlite');
         let dbCopied = false;
         let dbSkipped = false;
@@ -62,7 +69,7 @@ function syncMyZapConfigs(dirPath, options = {}) {
                 dbSkipped = true;
             }
         } else {
-            warn('Banco de dados base nao encontrado em core/myzap/configs/db.sqlite', {
+            warn('Banco de dados base nao encontrado em core/myzap/configs/db.seed.sqlite', {
                 metadata: { dbOrigem }
             });
         }

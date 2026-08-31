@@ -1,21 +1,16 @@
 const Store = require('electron-store');
 const store = new Store();
-const { warn, error, debug } = require('../myzapLogger');
+const { info, warn, error, debug } = require('../myzapLogger');
+const { getMyZapApiBaseUrls } = require('./requestMyZapApi');
+const {
+    parseBooleanLike,
+    normalizeCapabilityMode,
+    getCapabilityEntry,
+    markCapabilityRuntimeUnavailable,
+    clearCapabilityRuntimeUnavailable
+} = require('../capabilities');
 
-function parseBooleanLike(value, defaultValue = false) {
-    if (value === undefined || value === null || value === '') return defaultValue;
-    const normalized = String(value).trim().toLowerCase();
-
-    if (['1', 'true', 'sim', 'yes', 'y', 'on', 'ativo'].includes(normalized)) {
-        return true;
-    }
-
-    if (['0', 'false', 'nao', 'no', 'off', 'inativo'].includes(normalized)) {
-        return false;
-    }
-
-    return defaultValue;
-}
+const REQUEST_TIMEOUT_MS = 8000;
 
 function normalizeUpdateArgs(rawInput) {
     if (typeof rawInput === 'string') {
@@ -36,10 +31,35 @@ function normalizeUpdateArgs(rawInput) {
     return {};
 }
 
+function isMissingIaConfigResponse(status, data = {}) {
+    const errorText = String(
+        data?.error
+        || data?.message
+        || data?.mensagem
+        || ''
+    ).trim().toLowerCase();
+
+    if (status === 404) {
+        return true;
+    }
+
+    if (!errorText) {
+        return false;
+    }
+
+    return (
+        errorText.includes('configuracao nao encontrada')
+        || errorText.includes('configuração não encontrada')
+        || errorText.includes('configuracao não encontrada')
+        || errorText.includes('configuração nao encontrada')
+    );
+}
+
 async function updateIaConfig(rawInput) {
     const input = normalizeUpdateArgs(rawInput);
     const token = String(input.token || store.get('myzap_apiToken') || '').trim();
-    const api = 'http://localhost:5555/';
+    // 127.0.0.1 primeiro e localhost como fallback (lista vem do helper robusto)
+    const baseUrls = getMyZapApiBaseUrls();
     const sessionKey = String(input.sessionKey || store.get('myzap_sessionKey') || '').trim();
     const sessionName = String(input.sessionName || store.get('myzap_sessionName') || sessionKey).trim();
     const mensagemPadrao = String(
@@ -56,6 +76,26 @@ async function updateIaConfig(rawInput) {
         input.iaAtiva !== undefined ? input.iaAtiva : store.get('myzap_iaAtiva'),
         false
     );
+    const iaCapability = getCapabilityEntry('supportsIaConfig', store);
+    const iaCapabilityMode = normalizeCapabilityMode(store.get('myzap_capabilityIaConfigMode') || 'auto');
+
+    store.set({
+        myzap_mensagemPadrao: mensagemPadrao
+    });
+
+    // A capability do BACKEND controla apenas prompt/ia remotos. A mensagem
+    // padrao e recurso do MyZap LOCAL — o gate de capability fazia o "salvar
+    // vazia" do painel NUNCA chegar ao MyZap (a auto-resposta nao desligava).
+    // Agora tentamos sempre que ha MyZap local; um 404 (MyZap antigo sem a
+    // rota) vira 'skipped' gracioso la embaixo.
+    if (!iaCapability?.enabled) {
+        info('Capability de IA desabilitada no backend; aplicando apenas a mensagem padrao no MyZap local', {
+            metadata: {
+                area: 'updateIaConfig',
+                capability: iaCapability || null
+            }
+        });
+    }
 
     if (!token) {
         warn('Token nao encontrado', {
@@ -92,24 +132,91 @@ async function updateIaConfig(rawInput) {
             ia_ativa: iaAtiva ? 1 : 0
         };
 
-        const res = await fetch(`${api}admin/ia-manager/update-config`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                apitoken: token,
-                sessionkey: sessionKey
-            },
-            body: JSON.stringify(payload)
-        });
+        // Tenta cada base URL (127.0.0.1 -> localhost) com AbortController + timeout
+        // para nao travar quando o MyZap local nao responde.
+        let res = null;
+        let data = {};
+        let lastError = null;
 
-        const data = await res.json().catch(() => ({}));
+        for (const api of baseUrls) {
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+            try {
+                res = await fetch(`${api}admin/ia-manager/update-config`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        apitoken: token,
+                        sessionkey: sessionKey
+                    },
+                    body: JSON.stringify(payload),
+                    signal: ctrl.signal
+                });
+                data = await res.json().catch(() => ({}));
+                lastError = null;
+                break;
+            } catch (fetchErr) {
+                res = null;
+                lastError = fetchErr;
+                warn('Falha na chamada da configuracao de IA no MyZap local', {
+                    metadata: { area: 'updateIaConfig', api, error: fetchErr?.message || String(fetchErr) }
+                });
+            } finally {
+                clearTimeout(timer);
+            }
+        }
+
+        if (!res) {
+            return {
+                status: 'error',
+                message: lastError?.message || 'Falha ao contatar o MyZap local para atualizar a configuracao de IA.'
+            };
+        }
+
+        if (isMissingIaConfigResponse(res.status, data)) {
+            warn('Configuracao opcional de IA nao encontrada no MyZap local. Fluxo principal sera mantido.', {
+                metadata: {
+                    area: 'updateIaConfig',
+                    httpStatus: res.status,
+                    capabilityMode: iaCapabilityMode,
+                    response: data
+                }
+            });
+
+            if (iaCapabilityMode === 'auto') {
+                markCapabilityRuntimeUnavailable(
+                    'supportsIaConfig',
+                    'local_ia_config_not_supported',
+                    {
+                        httpStatus: res.status,
+                        response: data
+                    },
+                    store
+                );
+            }
+
+            return {
+                status: 'skipped',
+                reason: 'local_ia_config_not_supported',
+                message: 'Configuracao opcional de IA nao suportada ou nao configurada no MyZap local.',
+                data
+            };
+        }
+
         if (!res.ok || data?.error) {
+            if (res.status === 401 || res.status === 403) {
+                error('Credencial recusada ao atualizar configuracao de IA MyZap (update-config)', {
+                    metadata: { area: 'updateIaConfig', httpStatus: res.status }
+                });
+            }
             return {
                 status: 'error',
                 message: data?.error || `Falha ao atualizar configuracao de IA no MyZap (HTTP ${res.status}).`,
                 data
             };
         }
+
+        clearCapabilityRuntimeUnavailable('supportsIaConfig', store);
 
         store.set({
             myzap_mensagemPadrao: mensagemPadrao,

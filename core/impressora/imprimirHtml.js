@@ -309,13 +309,34 @@ async function imprimirLinux(dadosEscPos, printerName) {
   }
 }
 
+/**
+ * v4: largura de papel OPCIONAL (58/80mm). Sem ela, comportamento IDENTICO
+ * ao historico (pageSize default do driver) — e o que roda no campo hoje.
+ * Com ela, o print recebe pageSize EXPLICITO com altura medida do conteudo:
+ * necessario em drivers com DEVMODE quebrado (caso real: HPRT MPT-II 58mm —
+ * sem pageSize o job entrava em Error com 0 bytes transmitidos e derrubava a
+ * fila; com pageSize explicito imprime 100%). Prova A/B em 31/08/2026.
+ */
+const LARGURA_UTIL_MICRONS = { 58: 48000, 80: 72000 };
+const MICRONS_POR_PX = 264.5833; // 96 dpi
+
 async function imprimirHTML({
   msg,
   printerName,
   widthPx = 576,
-  silent = true
+  silent = true,
+  paperWidthMm = null
 }) {
   if (!printerName) throw new Error('Nome da impressora não informado');
+
+  const larguraMm = Number(paperWidthMm) || null;
+  const larguraUtilMicrons = larguraMm
+    ? (LARGURA_UTIL_MICRONS[larguraMm] || Math.round(larguraMm * 1000 * 0.83))
+    : null;
+  // viewport casando com a area imprimivel => scrollHeight ~ altura no papel
+  const viewportPx = larguraUtilMicrons
+    ? Math.max(120, Math.round(larguraUtilMicrons / MICRONS_POR_PX))
+    : widthPx;
 
   // Log inicial da tentativa de impressão
   logImpressao(printerName, msg, null);
@@ -413,7 +434,7 @@ async function imprimirHTML({
   try {
     win = new BrowserWindow({
       show: false,
-      width: widthPx,
+      width: viewportPx,
       height: 1000,
       webPreferences: {
         sandbox: true,              // isola renderer — crash nao mata main process
@@ -498,7 +519,30 @@ async function imprimirHTML({
     }
   });
 
-  emergencyLog('PRINT_SENDING', { impressora: printerName, fase: 'webContents.print' });
+  // pageSize explicito quando a largura do papel foi configurada: altura
+  // medida do conteudo renderizado (+5mm de folga), com piso/teto sensatos.
+  let pageSizeExplicito = null;
+  if (larguraUtilMicrons) {
+    try {
+      const alturaPx = await win.webContents.executeJavaScript(
+        'Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)'
+      );
+      const alturaMicrons = Math.min(
+        2000000,
+        Math.max(30000, Math.round(Number(alturaPx) * MICRONS_POR_PX) + 5000)
+      );
+      pageSizeExplicito = { width: larguraUtilMicrons, height: alturaMicrons };
+      info('pageSize explicito calculado para papel configurado', {
+        metadata: { impressora: printerName, paperWidthMm: larguraMm, alturaPx, pageSize: pageSizeExplicito }
+      });
+    } catch (medErr) {
+      warn('Falha ao medir altura do conteudo; seguindo sem pageSize (modo historico)', {
+        metadata: { impressora: printerName, error: medErr.message }
+      });
+    }
+  }
+
+  emergencyLog('PRINT_SENDING', { impressora: printerName, fase: 'webContents.print', pageSize: pageSizeExplicito });
 
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -529,7 +573,8 @@ async function imprimirHTML({
         {
           silent,
           deviceName: printerName,
-          margins: { marginType: 'none' }
+          margins: { marginType: 'none' },
+          ...(pageSizeExplicito ? { pageSize: pageSizeExplicito } : {})
         },
         async (success, failureReason) => {
           if (settled) return;
