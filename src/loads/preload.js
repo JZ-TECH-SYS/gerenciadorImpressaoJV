@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld('api', {
   // ── impressao (v4) ──
   getPrinters: () => ipcRenderer.invoke('printers:list'),
   setDefaultPrinter: (nome) => ipcRenderer.invoke('printers:setDefault', nome),
+  setPaperWidth: (mm) => ipcRenderer.invoke('printers:setPaperWidth', mm),
   testPrint: () => ipcRenderer.invoke('printers:test'),
   togglePrinting: () => ipcRenderer.invoke('app:togglePrinting'),
   openAjudaArquivo: () => ipcRenderer.invoke('app:openAjudaArquivo')

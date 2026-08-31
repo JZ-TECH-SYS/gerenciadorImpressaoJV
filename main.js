@@ -1023,6 +1023,7 @@ if (!hasSingleInstanceLock) {
         rodando: printing,
         pausadoPeloUsuario: isImpressaoPausadaPeloUsuario(),
         impressora: String(store.get('printer') || ''),
+        larguraPapelMm: Number(store.get('printer_paper_mm')) || null,
         configurada: hasValidConfigImpressao()
       }
     };
@@ -1039,6 +1040,15 @@ if (!hasSingleInstanceLock) {
   });
 
   // Grava a impressora padrao e liga o servico na hora se ficou completo.
+  // Largura do papel (58/80mm) — '' = automatica (default do driver, modo
+  // historico do campo). Necessaria em drivers com DEVMODE quebrado (MPT-II).
+  ipcMain.handle('printers:setPaperWidth', (_e, mm) => {
+    const valor = [58, 80].includes(Number(mm)) ? Number(mm) : '';
+    store.set('printer_paper_mm', valor);
+    info('Largura de papel configurada', { metadata: { printer_paper_mm: valor } });
+    return { status: 'success', printer_paper_mm: valor };
+  });
+
   ipcMain.handle('printers:setDefault', (_e, printerName) => {
     const nome = String(printerName || '').trim();
     store.set('printer', nome);
@@ -1067,7 +1077,7 @@ if (!hasSingleInstanceLock) {
       <p>Se voce esta lendo isto,<br>a impressao esta funcionando.</p>
     </div>`;
     try {
-      const resultado = await imprimirHTML({ msg: html, printerName });
+      const resultado = await imprimirHTML({ msg: html, printerName, paperWidthMm: Number(store.get('printer_paper_mm')) || null });
       return { status: 'success', message: `Teste enviado (job ${resultado.jobId}).` };
     } catch (err) {
       return { status: 'error', message: `Falha no teste: ${err?.message || err}` };

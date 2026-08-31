@@ -173,7 +173,7 @@ async function startWatcher() {
             }
           });
           
-          const resultado = await imprimirHTML({ msg: textoParaImprimir, printerName });
+          const resultado = await imprimirHTML({ msg: textoParaImprimir, printerName, paperWidthMm: Number(store.get('printer_paper_mm')) || null });
           markTicketAsPrinted(ticketKey);
           registrarImpressaoOk(ticketRef);
           console.log(`[WATCHER] ✅ Impresso! Job ID: ${resultado.jobId}, Source: ${resultado.source}`);

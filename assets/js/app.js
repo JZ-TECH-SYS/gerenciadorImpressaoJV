@@ -386,6 +386,8 @@ async function carregarImpressoras() {
       window.api.getPrinters(),
       window.api.getStore('printer')
     ]);
+    const larguraSalva = await window.api.getStore('printer_paper_mm');
+    $('imp-largura').value = larguraSalva ? String(larguraSalva) : '';
     sel.innerHTML = '<option value="">Selecione a impressora</option>';
     (Array.isArray(nomes) ? nomes : []).forEach((nome) => {
       const opt = document.createElement('option');
@@ -404,6 +406,13 @@ async function carregarImpressoras() {
 }
 
 $('btn-imp-refresh').addEventListener('click', carregarImpressoras);
+
+$('imp-largura').addEventListener('change', async () => {
+  const r = await window.api.setPaperWidth($('imp-largura').value);
+  $('imp-feedback').textContent = r?.printer_paper_mm
+    ? ('Largura salva: ' + r.printer_paper_mm + ' mm. Vale para os próximos tickets.')
+    : 'Largura: automática (padrão do driver).';
+});
 
 $('btn-imp-salvar').addEventListener('click', async () => {
   const nome = $('imp-select').value;
