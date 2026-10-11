@@ -245,6 +245,7 @@ async function startWatcher() {
       }
       if (reportar && detalhe.length) {
         confirmacao.enviarResultado(idprint, detalhe); // sem await: não segura a próxima consulta
+        confirmacao.vigiarTardio(idprint, detalhe); // v4.2: via travada na fila do Windows fica vigiada
       }
       ocupado = false;
       await delay(500);

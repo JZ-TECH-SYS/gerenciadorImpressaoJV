@@ -58,7 +58,9 @@ const {
   getTokenSyncWatcherStatus
 } = require('./core/api/tokenSyncWatcher');
 const { startWatcher: startPrintWatcher, stopWatcher: stopPrintWatcher, getPrintingStatus, isPrinting } = require('./core/api/ticketWatcher');
-const { startHeartbeat: startPrintHeartbeat, stopHeartbeat: stopPrintHeartbeat } = require('./core/impressora/confirmacao');
+const {
+  startHeartbeat: startPrintHeartbeat, stopHeartbeat: stopPrintHeartbeat, startVigiaTardia, stopVigiaTardia,
+} = require('./core/impressora/confirmacao');
 const { openLogViewer } = require('./core/windows/logViewer');
 const { createAppWindow } = require('./core/windows/appWindow');
 const trayManager = require('./core/windows/tray');
@@ -918,6 +920,8 @@ if (!hasSingleInstanceLock) {
 
     // v4.1: heartbeat da impressao para a API (a cada 60 s, mesmo pausada).
     try { startPrintHeartbeat(); } catch (e) { warn('Falha ao iniciar heartbeat da impressao', { metadata: { error: e?.message || e } }); }
+    // v4.2: vias travadas na fila do Windows (inclusive as de antes de abrir) vigiadas ate sair.
+    try { startVigiaTardia(); } catch (e) { warn('Falha ao iniciar a vigia das vias travadas', { metadata: { error: e?.message || e } }); }
 
     if (!hasValidConfigMyZap()) {
       warn('Configuracao da API ausente no startup', {
@@ -968,6 +972,7 @@ if (!hasSingleInstanceLock) {
     try { killMyZapProcess(); } catch (_e) { /* melhor esforco */ }
     try { stopPrintWatcher(); } catch (_e) { /* melhor esforco */ }
     try { stopPrintHeartbeat(); } catch (_e) { /* melhor esforco */ }
+    try { stopVigiaTardia(); } catch (_e) { /* melhor esforco */ }
 
     if (myzapConfigRefreshTimer) {
       clearInterval(myzapConfigRefreshTimer);

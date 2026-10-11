@@ -2,6 +2,7 @@
 // v4.1 — confirmação de impressão (contrato gerenciador ⇄ API ClickExpress):
 // rastreia o trabalho na fila do Windows, devolve o resultado de cada entrega
 // (idprint), manda heartbeat a cada 60 s e, sob comando, os logs sanitizados.
+// v4.2 — a via que travou na fila do Windows fica vigiada até sair (tardio).
 // REGRA: nada aqui pode quebrar ou atrasar a impressão — toda chamada de rede
 // tem timeout e todo erro só vira log.
 const os = require('os');
@@ -123,6 +124,8 @@ function impressoraHeartbeat(p) {
 }
 
 // ── Rastreio do trabalho na fila ───────────────────────────────────
+// jv-1-1 não pode casar com jv-1-10
+const casaDocumento = (documento) => new RegExp(`${String(documento).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\\d)`);
 const ERRO_JOB = /Error|Offline|PaperOut|UserIntervention|Blocked/i;
 // "Manter documentos impressos" deixa o trabalho na fila como Printed/Complete:
 // isso é papel na mão, não "parado na fila".
@@ -153,8 +156,7 @@ async function rastrearJob({
     resultado, etapa: null, erro: null, confirmacao: null, ...extra, visto_na_fila: visto, job_status: jobStatus,
   });
   try {
-    // jv-1-1 não pode casar com jv-1-10
-    const nome = new RegExp(`${String(documento).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\\d)`);
+    const nome = casaDocumento(documento);
     for (;;) {
       const job = listaJson(await runPs(scriptJobs(impressora)))
         .find((j) => nome.test(String(j.DocumentName || '')));
@@ -308,6 +310,212 @@ function stopHeartbeat() {
   heartbeatTimer = null;
 }
 
+// ── v4.2: impresso tardio (a via travada sai depois) ───────────────
+// Erro "spooler" não cancela nada: a via fica na fila do Windows e sai sozinha
+// quando a impressora volta — e a API ficaria com "erro" para sempre (ensaio de
+// 11/10: a 118987 travou com a MPT-II desligada e imprimiu ao religar). Cada via
+// travada fica vigiada, persistida no store (sobrevive a reinício e atualização),
+// até sair da fila:
+//   sumiu com a impressora pronta            → impresso (tardio)
+//   sumiu com a impressora parada, ou vista
+//   "Deleting"                                → tirada da fila sem imprimir
+// Um passo a cada 5 s, só enquanto houver via vigiada; desiste depois de 24 h.
+const CHAVE_TARDIOS = 'impressao_tardios';
+const TARDIO_INTERVALO_MS = 5000;
+const TARDIO_VALIDADE_MS = 24 * 60 * 60 * 1000;
+const JOB_SAINDO = /Deleting|Deleted/i;
+
+const listaTardios = () => {
+  const lista = store.get(CHAVE_TARDIOS);
+  return Array.isArray(lista) ? lista : [];
+};
+
+/**
+ * Destino das vias vigiadas a partir de uma leitura das filas. Puro.
+ * @param {Array} lista [{ idprint, desde, vias: [{ impressora, documento, ultimo, saiu_em, removida }] }]
+ * @param {Map} leituras impressora → { jobs, status }; impressora sem leitura = sem decisão nesta volta
+ * @returns {{ lista: Array, envios: Array<{ idprint, status, impressora, saiu_em }> }}
+ *   envios se repetem a cada volta até a API responder (quem chama tira da lista)
+ */
+function decidirTardios(lista, leituras, agora) {
+  const envios = [];
+  const fica = [];
+  for (const t of lista) {
+    if (agora - t.desde > TARDIO_VALIDADE_MS) continue; // desiste: segue erro na tela
+    const vias = t.vias.map((v) => {
+      if (v.saiu_em) return v;
+      const leitura = leituras.get(v.impressora);
+      if (!leitura) return v;
+      const job = leitura.jobs.find((j) => casaDocumento(v.documento).test(String(j.DocumentName || '')));
+      if (job) {
+        const st = textoJobStatus(job.JobStatus);
+        // "manter documentos impressos": fica na fila como Printed/Complete = papel
+        return JOB_CONCLUIDO.test(st) ? { ...v, ultimo: st, saiu_em: agora } : { ...v, ultimo: st };
+      }
+      const removida = JOB_SAINDO.test(v.ultimo || '') || Boolean(ERRO_IMPRESSORA[leitura.status]);
+      return { ...v, saiu_em: agora, removida };
+    });
+    fica.push({ ...t, vias });
+    if (vias.every((v) => v.saiu_em)) {
+      const removida = vias.find((v) => v.removida);
+      envios.push({
+        idprint: t.idprint,
+        status: removida ? 'erro' : 'impresso',
+        impressora: (removida || vias[0]).impressora || null,
+        saiu_em: Math.max(...vias.map((v) => v.saiu_em)),
+      });
+    }
+  }
+  return { lista: fica, envios };
+}
+
+/** Fila de cada impressora + estado dela (o estado decide entre papel e "tirada da fila"). */
+async function lerFilas(impressoras, runPs = runPowerShell) {
+  const leituras = new Map();
+  const estados = new Map();
+  try {
+    for (const p of listaJson(await runPs(SCRIPT_IMPRESSORAS))) {
+      estados.set(String(p.Name || '').toLowerCase(), statusImpressora(p));
+    }
+  } catch (_e) {
+    return leituras; // sem o estado da impressora não dá para decidir nada
+  }
+  for (const impressora of impressoras) {
+    try {
+      leituras.set(impressora, {
+        jobs: listaJson(await runPs(scriptJobs(impressora))),
+        status: estados.get(String(impressora).toLowerCase()) || 'Desconhecido',
+      });
+    } catch (_e) { /* impressora sumiu ou PowerShell falhou: sem decisão nesta volta */ }
+  }
+  return leituras;
+}
+
+/** POST do aviso tardio. true = a API decidiu (aceitou ou recusou): sai da vigia. */
+async function enviarTardio(e) {
+  try {
+    const res = await postApi('impressao/resultado', {
+      idprint: e.idprint,
+      status: e.status,
+      tardio: true,
+      impressora: e.impressora,
+      atraso_ms: Math.max(0, Date.now() - e.saiu_em), // a API grava a hora em que a via saiu
+      ...(e.status === 'impresso'
+        ? { confirmacao: 'fila_windows' }
+        : { etapa: 'removido', erro: 'tirada da fila do Windows sem imprimir' }),
+    }, 5000);
+    if (!res || res.status >= 500) return false;
+    info(res.ok ? 'Via travada saiu da fila do Windows: API avisada' : 'API recusou o aviso da via travada', {
+      metadata: { idprint: e.idprint, status: e.status, http: res.status },
+    });
+    return true;
+  } catch (_e) {
+    return false; // rede: tenta de novo na próxima volta
+  }
+}
+
+let tardioTimer = null;
+let tardioRodando = false;
+
+function agendarTardios(ms = TARDIO_INTERVALO_MS) {
+  if (tardioTimer || !listaTardios().length) return;
+  tardioTimer = setTimeout(() => {
+    tardioTimer = null;
+    passoTardios();
+  }, ms);
+  tardioTimer.unref?.(); // não segura o processo sozinho (no Electron o app já segura)
+}
+
+async function passoTardios({ runPs = runPowerShell } = {}) {
+  if (tardioRodando) return;
+  tardioRodando = true;
+  try {
+    const lista = listaTardios();
+    if (!lista.length) return;
+    const impressoras = [...new Set(lista.flatMap((t) => t.vias.filter((v) => !v.saiu_em).map((v) => v.impressora)))];
+    const leituras = impressoras.length ? await lerFilas(impressoras, runPs) : new Map();
+    const { lista: nova, envios } = decidirTardios(lista, leituras, Date.now());
+    const resolvidas = new Set();
+    for (const e of envios) {
+      if (await enviarTardio(e)) resolvidas.add(e.idprint);
+    }
+    // via travada que entrou enquanto esta volta lia as filas não se perde
+    const antes = new Set(lista.map((t) => t.idprint));
+    const chegaram = listaTardios().filter((t) => !antes.has(t.idprint));
+    store.set(CHAVE_TARDIOS, [...nova.filter((t) => !resolvidas.has(t.idprint)), ...chegaram]);
+  } catch (e) {
+    warn('Falha ao vigiar via travada na fila do Windows', { metadata: { error: e?.message || String(e) } });
+  } finally {
+    tardioRodando = false;
+    agendarTardios();
+  }
+}
+
+/**
+ * Entrega com via travada na fila do Windows (erro "spooler"): guarda as vias para
+ * vigiar a saída. Só quando todas foram vistas na fila — via que nunca apareceu
+ * não tem como ser vigiada. Nunca lança.
+ */
+function vigiarTardio(idprint, detalhe) {
+  try {
+    const travadas = detalhe.filter((d) => d.resultado === 'erro' && d.etapa === 'spooler');
+    if (!travadas.length || !travadas.every((d) => d.visto_na_fila && d.documento && d.impressora)) return;
+    const lista = listaTardios().filter((t) => t.idprint !== idprint);
+    lista.push({
+      idprint,
+      desde: Date.now(),
+      vias: travadas.map((d) => ({
+        impressora: d.impressora, documento: d.documento, ultimo: d.job_status || null, saiu_em: null, removida: false,
+      })),
+    });
+    store.set(CHAVE_TARDIOS, lista.slice(-200));
+    info('Via travada na fila do Windows: vigiando até sair', { metadata: { idprint, vias: travadas.length } });
+    agendarTardios();
+  } catch (e) {
+    warn('Falha ao guardar via travada', { metadata: { idprint, error: e?.message || String(e) } });
+  }
+}
+
+const SCRIPT_TODAS_AS_FILAS = 'Get-Printer | ForEach-Object { Get-PrintJob -PrinterName $_.Name -ErrorAction SilentlyContinue } '
+  + "| Where-Object { $_.DocumentName -like 'jv-*' } "
+  + "| Select-Object PrinterName, DocumentName, @{n='JobStatus';e={[string]$_.JobStatus}} "
+  + '| ConvertTo-Json -Compress';
+
+/**
+ * Vias jv-* que já estavam na fila quando o gerenciador abriu (versão anterior, que
+ * não vigiava, ou app fechado no meio do rastreio) entram na vigia. A API só aceita
+ * o aviso de comanda com erro ou entregue; as outras ela recusa e saem da lista.
+ */
+async function adotarTravadas(runPs = runPowerShell, agora = Date.now()) {
+  const vigiadas = new Set(listaTardios().map((t) => t.idprint));
+  const novas = new Map();
+  for (const j of listaJson(await runPs(SCRIPT_TODAS_AS_FILAS, 15000))) {
+    const m = /^jv-(\d+)-\d+/.exec(String(j.DocumentName || ''));
+    const st = textoJobStatus(j.JobStatus);
+    if (!m || !j.PrinterName || JOB_CONCLUIDO.test(st) || vigiadas.has(Number(m[1]))) continue;
+    const t = novas.get(m[1]) || { idprint: Number(m[1]), desde: agora, adotada: true, vias: [] };
+    t.vias.push({ impressora: j.PrinterName, documento: m[0], ultimo: st, saiu_em: null, removida: false });
+    novas.set(m[1], t);
+  }
+  if (novas.size) {
+    store.set(CHAVE_TARDIOS, [...listaTardios(), ...novas.values()].slice(-200));
+    info('Vias jv-* já paradas na fila do Windows: vigiando até sair', { metadata: { idprints: [...novas.keys()] } });
+  }
+  return novas.size;
+}
+
+function startVigiaTardia() {
+  if (!isWindows) return;
+  adotarTravadas()
+    .catch((e) => warn('Falha ao ler as filas do Windows na abertura', { metadata: { error: e?.message || String(e) } }))
+    .finally(() => agendarTardios(TARDIO_INTERVALO_MS));
+}
+
+function stopVigiaTardia() {
+  clearTimeout(tardioTimer);
+  tardioTimer = null;
+}
+
 // ── Logs sob comando (contrato §4) ─────────────────────────────────
 const CHAVE_PROIBIDA = /^conteudo|^preview|token|senha|password|secret|api_?key|authorization/i;
 
@@ -412,4 +620,11 @@ module.exports = {
   sanitizarLinha,
   montarLogs,
   enviarLogs,
+  decidirTardios,
+  lerFilas,
+  vigiarTardio,
+  adotarTravadas,
+  passoTardios,
+  startVigiaTardia,
+  stopVigiaTardia,
 };

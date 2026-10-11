@@ -51,6 +51,8 @@ jobs:
       # Sem release no canal ainda: segue so com o LITE (continue-on-error).
       - name: Baixar MyZap Runtime Pack (canal)
         id: pack
+        # build de branch (workflow_dispatch) e so para teste: sem o FULL
+        if: github.ref_name == 'main'
         continue-on-error: true
         run: |
           gh release download -R JZ-TECH-SYS/myzap --pattern "myzap-pack-win32-x64.*" -D build/pack
@@ -121,6 +123,9 @@ jobs:
 
   release:
     needs: [build-windows, build-linux]
+    # So a main publica release (= auto-update da frota). Branch disparado na mao
+    # gera so os artefatos do run, para instalar e testar numa maquina antes.
+    if: github.ref_name == 'main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

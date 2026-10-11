@@ -329,3 +329,108 @@ test('ticketWatcher carrega sem Electron e começa ocioso', () => {
   const { isPrinting } = require('../core/api/ticketWatcher');
   assert.equal(isPrinting(), false);
 });
+
+// ── v4.2: impresso tardio ──────────────────────────────────────────
+const MPT = 'MPT-II Recibo (USB)';
+const via = (extra = {}) => ({ impressora: MPT, documento: 'jv-118987-1', ultimo: 'Normal', saiu_em: null, removida: false, ...extra });
+const vigiada = (extra = {}) => ({ idprint: 118987, desde: 1000, vias: [via()], ...extra });
+const leitura = (jobs, status = 'Normal') => new Map([[MPT, { jobs, status }]]);
+
+test('decidirTardios: via ainda na fila (impressora desligada) → nada a avisar', () => {
+  const { lista, envios } = confirmacao.decidirTardios([vigiada()], leitura([job('jv-118987-1', 'Error, Offline')], 'Offline'), 5000);
+  assert.deepEqual(envios, []);
+  assert.equal(lista[0].vias[0].ultimo, 'Error, Offline');
+  assert.equal(lista[0].vias[0].saiu_em, null);
+});
+
+test('decidirTardios: saiu da fila com a impressora pronta → impresso, com a hora em que saiu', () => {
+  const { envios } = confirmacao.decidirTardios([vigiada()], leitura([job('jv-118987-10', 'Error')]), 777000); // jv-118987-10 não é a via 1
+  assert.deepEqual(envios, [{ idprint: 118987, status: 'impresso', impressora: MPT, saiu_em: 777000 }]);
+  // "manter documentos impressos": Printed na fila também é papel
+  assert.equal(confirmacao.decidirTardios([vigiada()], leitura([job('jv-118987-1', 'Printed, Retained')]), 9).envios[0].status, 'impresso');
+});
+
+test('decidirTardios: sumiu com a impressora parada, ou vista "Deleting" → tirada da fila', () => {
+  assert.equal(confirmacao.decidirTardios([vigiada()], leitura([], 'Offline'), 9).envios[0].status, 'erro');
+  const apagando = vigiada({ vias: [via({ ultimo: 'Deleting, Error' })] });
+  assert.equal(confirmacao.decidirTardios([apagando], leitura([]), 9).envios[0].status, 'erro');
+});
+
+test('decidirTardios: sem leitura da impressora não decide; 24 h depois desiste', () => {
+  const sem = confirmacao.decidirTardios([vigiada()], new Map(), 5000);
+  assert.deepEqual(sem.envios, []);
+  assert.equal(sem.lista.length, 1);
+  const velha = confirmacao.decidirTardios([vigiada()], leitura([]), 1000 + 24 * 60 * 60 * 1000 + 1);
+  assert.deepEqual(velha, { lista: [], envios: [] });
+});
+
+test('decidirTardios: duas vias — só avisa quando as duas saíram, com a hora da última', () => {
+  const duas = vigiada({ vias: [via(), via({ impressora: 'COZINHA', documento: 'jv-118987-2' })] });
+  const leituras = new Map([[MPT, { jobs: [], status: 'Normal' }], ['COZINHA', { jobs: [job('jv-118987-2', 'Offline')], status: 'Offline' }]]);
+  const r1 = confirmacao.decidirTardios([duas], leituras, 2000);
+  assert.deepEqual(r1.envios, []);
+  assert.equal(r1.lista[0].vias[0].saiu_em, 2000);
+  leituras.set('COZINHA', { jobs: [], status: 'Normal' });
+  const r2 = confirmacao.decidirTardios(r1.lista, leituras, 9000);
+  assert.deepEqual(r2.envios, [{ idprint: 118987, status: 'impresso', impressora: MPT, saiu_em: 9000 }]);
+});
+
+test('vigiarTardio: guarda só a via travada que foi vista na fila; antes do Windows não', () => {
+  storeData.impressao_tardios = [];
+  const detalhe = (r) => [{ impressora: MPT, documento: 'jv-5-1', visto_na_fila: true, job_status: 'Normal', resultado: 'erro', etapa: 'spooler', ...r }];
+  confirmacao.vigiarTardio(5, detalhe({ etapa: 'antes_spooler' }));
+  confirmacao.vigiarTardio(6, detalhe({ visto_na_fila: false })); // nunca apareceu: não tem o que vigiar
+  confirmacao.vigiarTardio(7, detalhe({ resultado: 'impresso', etapa: null }));
+  assert.deepEqual(storeData.impressao_tardios, []);
+  confirmacao.vigiarTardio(8, detalhe());
+  confirmacao.vigiarTardio(8, detalhe({ documento: 'jv-8-1' })); // reentregue: troca, não duplica
+  assert.equal(storeData.impressao_tardios.length, 1);
+  assert.deepEqual(storeData.impressao_tardios[0].vias, [{ impressora: MPT, documento: 'jv-8-1', ultimo: 'Normal', saiu_em: null, removida: false }]);
+  confirmacao.stopVigiaTardia();
+});
+
+test('adotarTravadas: jv-* parado na fila ao abrir entra na vigia (impresso guardado e já vigiado não)', async () => {
+  storeData.impressao_tardios = [vigiada({ idprint: 300 })];
+  const filas = [
+    { PrinterName: MPT, DocumentName: 'jv-118987-1', JobStatus: 'Normal' },
+    { PrinterName: 'COZINHA', DocumentName: 'jv-118987-2', JobStatus: 'Error' },
+    { PrinterName: MPT, DocumentName: 'jv-200-1', JobStatus: 'Printed, Retained' },
+    { PrinterName: MPT, DocumentName: 'jv-300-1', JobStatus: 'Offline' },
+    { PrinterName: MPT, DocumentName: 'Microsoft Word - doc', JobStatus: 'Error' },
+  ];
+  let script = '';
+  const n = await confirmacao.adotarTravadas(async (s) => { script = s; return JSON.stringify(filas); }, 4242);
+  assert.equal(n, 1);
+  assert.ok(script.includes("-like 'jv-*'") && !/Remove-PrintJob|Restart/i.test(script));
+  assert.deepEqual(storeData.impressao_tardios[1], {
+    idprint: 118987, desde: 4242, adotada: true,
+    vias: [via({ documento: 'jv-118987-1' }), via({ impressora: 'COZINHA', documento: 'jv-118987-2', ultimo: 'Error' })],
+  });
+});
+
+test('passoTardios: avisa a API (tardio + hora em que saiu) e tira da vigia; rede fora mantém', async () => {
+  const runPs = async (s) => (s.includes('Win32_Printer')
+    ? JSON.stringify({ Name: MPT, PrinterStatus: 3, DetectedErrorState: 2, WorkOffline: false })
+    : '');
+  const corpos = [];
+  let resposta = { ok: false, status: 503 };
+  global.fetch = async (url, opts) => { corpos.push({ url, ...JSON.parse(opts.body) }); return resposta; };
+
+  storeData.impressao_tardios = [vigiada({ desde: Date.now() })];
+  await confirmacao.passoTardios({ runPs });
+  assert.equal(storeData.impressao_tardios.length, 1, 'API fora: continua vigiada');
+  resposta = { ok: true, status: 200 };
+  await confirmacao.passoTardios({ runPs });
+  assert.deepEqual(storeData.impressao_tardios, []);
+  const c = corpos[1];
+  assert.equal(c.url, 'https://api.test/impressao/resultado');
+  assert.deepEqual([c.idprint, c.status, c.tardio, c.confirmacao, c.impressora, c.idempresa], [118987, 'impresso', true, 'fila_windows', MPT, 3]);
+  assert.ok(c.atraso_ms >= 0 && c.atraso_ms < 5000);
+
+  // API recusa (a comanda foi reenviada/cancelada): decide e sai da vigia
+  storeData.impressao_tardios = [vigiada({ desde: Date.now() })];
+  resposta = { ok: false, status: 400 };
+  await confirmacao.passoTardios({ runPs });
+  assert.deepEqual(storeData.impressao_tardios, []);
+  confirmacao.stopVigiaTardia();
+});
