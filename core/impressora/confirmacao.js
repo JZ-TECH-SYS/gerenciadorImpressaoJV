@@ -3,6 +3,8 @@
 // rastreia o trabalho na fila do Windows, devolve o resultado de cada entrega
 // (idprint), manda heartbeat a cada 60 s e, sob comando, os logs sanitizados.
 // v4.2 — a via que travou na fila do Windows fica vigiada até sair (tardio).
+// v4.2.2 — PowerShell frio: a 1ª leitura de cada rastreio tem mais tempo e as
+// leituras da abertura (heartbeat, adoção) também, o que já deixa o PowerShell quente.
 // REGRA: nada aqui pode quebrar ou atrasar a impressão — toda chamada de rede
 // tem timeout e todo erro só vira log.
 const os = require('os');
@@ -147,9 +149,12 @@ const ERRO_IMPRESSORA = {
  */
 async function rastrearJob({
   impressora, documento, runPs = runPowerShell, sleep = delay, agora = Date.now,
-  limiteMs = 12000, intervaloMs = 1000,
+  limiteMs = 12000, intervaloMs = 1000, primeiraLeituraMs = 10000,
 }) {
-  const inicio = agora();
+  // Depois de um tempo parado (PC recém-ligado) a 1ª consulta passa dos 4 s: cortada, virava
+  // "impresso sem prova" com a via presa na fila (Di Tali e Vaqueiro, 11/10). Ela ganha mais
+  // tempo, e o prazo de "parado na fila" conta de quando ela voltou.
+  let inicio = null;
   let visto = false;
   let jobStatus = null;
   const fim = (resultado, extra) => ({
@@ -158,8 +163,9 @@ async function rastrearJob({
   try {
     const nome = casaDocumento(documento);
     for (;;) {
-      const job = listaJson(await runPs(scriptJobs(impressora)))
+      const job = listaJson(await runPs(scriptJobs(impressora), inicio === null ? primeiraLeituraMs : undefined))
         .find((j) => nome.test(String(j.DocumentName || '')));
+      if (inicio === null) inicio = agora();
       if (job) {
         visto = true;
         jobStatus = textoJobStatus(job.JobStatus);
@@ -279,7 +285,9 @@ async function enviarHeartbeat() {
     if (!configApi()) return;
     let impressoras = [];
     try {
-      impressoras = listaJson(await runPowerShell(SCRIPT_IMPRESSORAS)).map(impressoraHeartbeat);
+      // 20 s: o 1º heartbeat sai na abertura, com o PowerShell frio (em 4 s o painel ficava
+      // "sem impressoras"); não segura nada, a impressão não espera por ele.
+      impressoras = listaJson(await runPowerShell(SCRIPT_IMPRESSORAS, 20000)).map(impressoraHeartbeat);
     } catch (_e) { impressoras = []; }
     const res = await postApi('impressao/heartbeat', {
       so: process.platform,
@@ -531,12 +539,13 @@ const SCRIPT_TODAS_AS_FILAS = 'Get-Printer | ForEach-Object { Get-PrintJob -Prin
 /**
  * Vias jv-* que já estavam na fila quando o gerenciador abriu (versão anterior, que
  * não vigiava, ou app fechado no meio do rastreio) entram na vigia. A API só aceita
- * o aviso de comanda com erro ou entregue; as outras ela recusa e saem da lista.
+ * o aviso de comanda com erro, entregue ou impressa sem prova; as outras ela recusa e
+ * saem da lista. 30 s: roda na abertura, com o PC às vezes recém-ligado.
  */
 async function adotarTravadas(runPs = runPowerShell, agora = Date.now()) {
   const vigiadas = new Set(listaTardios().map((t) => t.idprint));
   const novas = new Map();
-  for (const j of listaJson(await runPs(SCRIPT_TODAS_AS_FILAS, 15000))) {
+  for (const j of listaJson(await runPs(SCRIPT_TODAS_AS_FILAS, 30000))) {
     const m = /^jv-(\d+)-\d+/.exec(String(j.DocumentName || ''));
     const st = textoJobStatus(j.JobStatus);
     if (!m || !j.PrinterName || JOB_CONCLUIDO.test(st) || vigiadas.has(Number(m[1]))) continue;

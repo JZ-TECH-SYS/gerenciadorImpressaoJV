@@ -54,15 +54,20 @@ test('injetarTitulo: HTML completo mantém o doctype na frente (sem quirks mode)
 // PowerShell falso: Get-PrintJob responde a sequência `filas` (a última se
 // repete) e Win32_Printer responde `impressoras`, no formato do ConvertTo-Json
 // (nada com 0 itens, objeto solto com 1). Relógio falso: cada chamada "custa"
-// 300 ms e o sleep só avança o relógio.
-function cenario({ filas = [[]], impressoras = [], falhar = false } = {}) {
+// 300 ms (ou o que `custos` disser, na ordem das chamadas) e o sleep só avança o
+// relógio. Como o execFile: chamada que passa do prazo é morta e falha.
+function cenario({ filas = [[]], impressoras = [], falhar = false, custos = [] } = {}) {
   let agora = 0;
   let consulta = 0;
   const scripts = [];
+  const prazos = [];
   const json = (lista) => (lista.length ? JSON.stringify(lista.length === 1 ? lista[0] : lista) : '');
-  const runPs = async (script) => {
+  const runPs = async (script, timeoutMs = 4000) => {
+    const custo = custos[scripts.length] ?? 300;
     scripts.push(script);
-    agora += 300;
+    prazos.push(timeoutMs);
+    agora += Math.min(custo, timeoutMs);
+    if (custo > timeoutMs) throw new Error('powershell.exe: tempo esgotado');
     if (falhar) throw new Error('powershell.exe não encontrado');
     if (script.includes('Win32_Printer')) return json(impressoras);
     const fila = filas[Math.min(consulta, filas.length - 1)];
@@ -77,7 +82,7 @@ function cenario({ filas = [[]], impressoras = [], falhar = false } = {}) {
     agora: () => agora,
     ...extra,
   });
-  return { rastrear, scripts, tempo: () => agora };
+  return { rastrear, scripts, prazos, tempo: () => agora };
 }
 const job = (DocumentName, JobStatus) => ({ Id: 7, DocumentName, JobStatus });
 const pronta = { Name: 'EPSON TM-T20', PrinterStatus: 3, DetectedErrorState: 2, WorkOffline: false };
@@ -143,6 +148,29 @@ test('rastrearJob: PowerShell indisponível/falhando → impresso/indisponivel (
     impressora: 'X', documento: 'jv-1-1', runPs: async () => 'Get-PrintJob : acesso negado', sleep: async () => {},
   });
   assert.equal(lixo.confirmacao, 'indisponivel');
+});
+
+// v4.2.2: a 1ª consulta depois de um tempo parado (PC recém-ligado) passa dos 4 s. Cortada, a
+// via presa na fila virava "impresso sem prova" (Di Tali 118995 e Vaqueiro, 11/10).
+test('rastrearJob: PowerShell frio (1ª leitura leva 7 s) ainda prova o papel', async () => {
+  const c = cenario({ filas: [[job('jv-118924-1', 'Printing')], []], custos: [7000] });
+  assert.deepEqual(await c.rastrear(), {
+    resultado: 'impresso', etapa: null, erro: null, confirmacao: 'fila_windows', visto_na_fila: true, job_status: 'Printing',
+  });
+  assert.deepEqual(c.prazos, [10000, 4000]); // só a 1ª leitura ganha o prazo maior
+});
+
+test('rastrearJob: PowerShell frio + impressora desligada → erro (e a via entra na vigia)', async () => {
+  const c = cenario({ filas: [[job('jv-118924-1', 'Spooling')]], custos: [7000] });
+  assert.equal((await c.rastrear()).erro, 'parado na fila do Windows');
+  // os 12 s de "parado" contam de quando a 1ª leitura voltou
+  assert.ok(c.tempo() >= 7000 + 12000, String(c.tempo()));
+});
+
+test('rastrearJob: 1ª leitura passa até dos 10 s → impresso/indisponivel (nunca alarme falso)', async () => {
+  const c = cenario({ filas: [[job('jv-118924-1', 'Error')]], custos: [15000] });
+  assert.equal((await c.rastrear()).confirmacao, 'indisponivel');
+  assert.equal(c.tempo(), 10000);
 });
 
 // ── agregação por idprint ──────────────────────────────────────────
