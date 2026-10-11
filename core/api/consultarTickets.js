@@ -1,6 +1,11 @@
 const Store = require("electron-store");
 const store = new Store();
 const { warn, error, debug } = require('../utils/printerLogger');
+const { maquina, VERSAO } = require('../impressora/confirmacao');
+
+// v4.1: além dos tickets, as chaves novas (e opcionais) do contrato. API antiga
+// sem elas = fluxo antigo: sem rastreio nem resultado.
+const VAZIO = { tickets: [], idprint: null, confirmar: false, cmd: null };
 
 async function consultarTickets() {
   const token = store.get('apiToken');
@@ -11,14 +16,14 @@ async function consultarTickets() {
     warn("Token não encontrado", {
       metadata: { area: 'consultarTickets', missing: 'token' }
     });
-    return [];
+    return VAZIO;
   }
 
   if (!api) {
     warn("URL da API não encontrada", {
       metadata: { area: 'consultarTickets', missing: 'apiUrl' }
     });
-    return [];
+    return VAZIO;
   }
 
   try {
@@ -26,7 +31,11 @@ async function consultarTickets() {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`
+        Authorization: `Bearer ${token}`,
+        // v4.1: gerenciador que confirma o papel (contrato §1)
+        'X-JV-Confirma': '1',
+        'X-JV-Maquina': maquina(),
+        'X-JV-Versao': VERSAO
       }
     });
     const data = await res.json();
@@ -35,17 +44,25 @@ async function consultarTickets() {
         metadata: { status: res.status, body: data }
       });
     }
-    const tickets = Array.isArray(data.result?.texto) ? data.result.texto : [];
-    debug('Tickets recebidos', {
-      metadata: { quantidade: tickets.length, origem: api }
-    });
-    return tickets;
+    const result = data?.result || {};
+    const tickets = Array.isArray(result.texto) ? result.texto : [];
+    if (tickets.length) {
+      debug('Tickets recebidos', {
+        metadata: { quantidade: tickets.length, origem: api }
+      });
+    }
+    return {
+      tickets,
+      idprint: result.idprint ?? null,
+      confirmar: result.confirmar === true,
+      cmd: result.cmd || null
+    };
 
   } catch (e) {
     error("Erro ao consultar API", {
       metadata: { area: 'consultarTickets', error: e }
     });
-    return [];
+    return VAZIO;
   }
 }
 

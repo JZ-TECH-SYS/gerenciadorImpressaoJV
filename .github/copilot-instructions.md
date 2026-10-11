@@ -14,7 +14,7 @@
 - Loop de polling de tickets: `core/api/ticketWatcher.js`.
 - Consulta externa de tickets: `core/api/consultarTickets.js`.
 - Motor de impressao: `core/impressora/imprimirHtml.js`.
-- Monitor de Job ID: `core/utils/windowsJobMonitor.js`.
+- Confirmacao de impressao (rastreio da fila do Windows, resultado, heartbeat, logs): `core/impressora/confirmacao.js`.
 - Logs e diagnostico: `core/utils/logger.js`.
 - Paginas renderer: `assets/html` e `assets/js`.
 - APIs privilegiadas para renderer devem passar por preload em `src/loads`.

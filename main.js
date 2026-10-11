@@ -57,7 +57,8 @@ const {
   stopTokenSyncWatcher,
   getTokenSyncWatcherStatus
 } = require('./core/api/tokenSyncWatcher');
-const { startWatcher: startPrintWatcher, stopWatcher: stopPrintWatcher, getPrintingStatus } = require('./core/api/ticketWatcher');
+const { startWatcher: startPrintWatcher, stopWatcher: stopPrintWatcher, getPrintingStatus, isPrinting } = require('./core/api/ticketWatcher');
+const { startHeartbeat: startPrintHeartbeat, stopHeartbeat: stopPrintHeartbeat } = require('./core/impressora/confirmacao');
 const { openLogViewer } = require('./core/windows/logViewer');
 const { createAppWindow } = require('./core/windows/appWindow');
 const trayManager = require('./core/windows/tray');
@@ -815,7 +816,7 @@ if (!hasSingleInstanceLock) {
 } else {
   app.on('second-instance', handleSecondInstanceLaunch);
 
-  attachAutoUpdaterHandlers(autoUpdater, { toast, getQueueStatus: getWhatsappQueueWatcherStatus });
+  attachAutoUpdaterHandlers(autoUpdater, { toast, getQueueStatus: getWhatsappQueueWatcherStatus, isPrinting });
   setQueueNotifier((msg) => trayManager.notify(msg));
 
   app.whenReady().then(() => {
@@ -915,6 +916,9 @@ if (!hasSingleInstanceLock) {
       info('Impressao pausada pelo usuario (persistido) — aguardando retomada manual');
     }
 
+    // v4.1: heartbeat da impressao para a API (a cada 60 s, mesmo pausada).
+    try { startPrintHeartbeat(); } catch (e) { warn('Falha ao iniciar heartbeat da impressao', { metadata: { error: e?.message || e } }); }
+
     if (!hasValidConfigMyZap()) {
       warn('Configuracao da API ausente no startup', {
         metadata: {
@@ -963,6 +967,7 @@ if (!hasSingleInstanceLock) {
     // Sair para o MOTOR de proposito (sem EPIPE/orfaos) e a impressao limpa.
     try { killMyZapProcess(); } catch (_e) { /* melhor esforco */ }
     try { stopPrintWatcher(); } catch (_e) { /* melhor esforco */ }
+    try { stopPrintHeartbeat(); } catch (_e) { /* melhor esforco */ }
 
     if (myzapConfigRefreshTimer) {
       clearInterval(myzapConfigRefreshTimer);

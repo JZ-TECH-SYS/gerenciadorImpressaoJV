@@ -7,7 +7,6 @@ const { exec } = require('child_process');
 const util = require('util');
 const execPromise = util.promisify(exec);
 const { info, debug, warn, error, logImpressao } = require('../utils/printerLogger');
-const windowsJobMonitor = require('../utils/windowsJobMonitor');
 
 const PRINT_TIMEOUT_MS = 30000; // 30s max por impressao
 const CRASH_LOG_PATH = path.join(os.tmpdir(), 'jv-printer', 'logs', 'crash.log');
@@ -587,35 +586,15 @@ async function imprimirHTML({
                 metadata: { impressora: printerName }
               });
               emergencyLog('PRINT_SUCCESS', { impressora: printerName });
-              
-              try {
-                const windowsJobId = await windowsJobMonitor.waitForJobId(printerName, 3000);
-                
-                if (windowsJobId) {
-                  logImpressao(printerName, msg, windowsJobId);
-                  info('Job confirmado pelo Windows', {
-                    metadata: { impressora: printerName, jobId: windowsJobId }
-                  });
-                  safeCloseWin();
-                  resolve({ success: true, jobId: windowsJobId, source: 'windows' });
-                } else {
-                  const fallbackId = `CUSTOM_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-                  logImpressao(printerName, msg, fallbackId);
-                  warn('Fallback de JobID apos tentativa pelo Windows', {
-                    metadata: { impressora: printerName, jobId: fallbackId }
-                  });
-                  safeCloseWin();
-                  resolve({ success: true, jobId: fallbackId, source: 'fallback' });
-                }
-              } catch (jobErr) {
-                warn('Erro ao buscar Job ID do Windows', {
-                  metadata: { impressora: printerName, error: jobErr.message }
-                });
-                const fallbackId = `ERROR_${Date.now()}`;
-                logImpressao(printerName, msg, fallbackId);
-                safeCloseWin();
-                resolve({ success: true, jobId: fallbackId, source: 'error' });
-              }
+
+              // v4.1: resolve na hora. A espera de 3 s pelo JobID do Windows
+              // quase nunca achava nada e inventava um WIN_<n> logado como
+              // "confirmado". Confirmação real (quando a API pede) é o rastreio
+              // da fila feito pelo ticketWatcher.
+              const jobId = `chromium_${Date.now()}`;
+              logImpressao(printerName, msg, jobId);
+              safeCloseWin();
+              resolve({ success: true, jobId, source: 'chromium' });
             } else {
               const erro = failureReason || 'Erro desconhecido na impressao';
               error('Falha ao imprimir HTML', {

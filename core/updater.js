@@ -6,6 +6,10 @@ const { info, warn, error } = require('./utils/logger');
 // lote de disparo (mensagens ficavam presas em 'processando' no backend).
 const INSTALL_RETRY_MS = 15 * 1000;
 const INSTALL_DEADLINE_MS = 10 * 60 * 1000;
+// v4.1: tambem nao derrubar no MEIO de uma impressao (rastreio da fila e
+// resultado para a API inclusos) — confere a cada 1 s, no maximo 60 s.
+const PRINT_IDLE_CHECK_MS = 1000;
+const PRINT_IDLE_MAX_MS = 60 * 1000;
 
 // true enquanto a checagem em andamento foi pedida pelo usuario (botao/tray).
 // Checagens periodicas silenciosas nao devem gerar toast de "nada novo"/"erro".
@@ -23,7 +27,7 @@ function getUpdaterStatus() {
 }
 
 function attachAutoUpdaterHandlers(autoUpdater, callbacks = {}) {
-  const { toast, getQueueStatus } = callbacks;
+  const { toast, getQueueStatus, isPrinting } = callbacks;
   let installScheduled = false;
 
   autoUpdater.logger = log;
@@ -90,6 +94,20 @@ function attachAutoUpdaterHandlers(autoUpdater, callbacks = {}) {
       }
     };
 
+    const instalarQuandoImpressaoOciosa = (desde = Date.now()) => {
+      let imprimindo = false;
+      try {
+        imprimindo = typeof isPrinting === 'function' && Boolean(isPrinting());
+      } catch (_e) {
+        imprimindo = false;
+      }
+      if (imprimindo && Date.now() - desde < PRINT_IDLE_MAX_MS) {
+        setTimeout(() => instalarQuandoImpressaoOciosa(desde), PRINT_IDLE_CHECK_MS);
+        return;
+      }
+      instalarAgora();
+    };
+
     const tentarInstalar = () => {
       let filaOcupada = false;
       try {
@@ -101,7 +119,7 @@ function attachAutoUpdaterHandlers(autoUpdater, callbacks = {}) {
 
       if (!filaOcupada || Date.now() >= deadline) {
         toast?.('Atualização baixada. Aplicando agora...');
-        instalarAgora();
+        instalarQuandoImpressaoOciosa();
         return;
       }
 

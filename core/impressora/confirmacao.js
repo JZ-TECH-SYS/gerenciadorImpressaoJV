@@ -1,0 +1,415 @@
+// core/impressora/confirmacao.js
+// v4.1 — confirmação de impressão (contrato gerenciador ⇄ API ClickExpress):
+// rastreia o trabalho na fila do Windows, devolve o resultado de cada entrega
+// (idprint), manda heartbeat a cada 60 s e, sob comando, os logs sanitizados.
+// REGRA: nada aqui pode quebrar ou atrasar a impressão — toda chamada de rede
+// tem timeout e todo erro só vira log.
+const os = require('os');
+const fs = require('fs');
+const path = require('path');
+const { execFile } = require('child_process');
+const Store = require('electron-store');
+const { info, warn } = require('../utils/printerLogger');
+const { LOG_DIR, getLogDateKey } = require('../utils/logger');
+const { version: VERSAO } = require('../../package.json');
+
+const store = new Store();
+const isWindows = os.platform() === 'win32';
+const delay = (ms) => new Promise((res) => setTimeout(res, ms));
+
+/**
+ * Nome da máquina: o MESMO valor vai no header do poll e nos POSTs (a API casa
+ * a máquina pelos dois). Header HTTP só aceita ASCII — um caractere fora disso
+ * derrubaria o poll inteiro —, então tira acento e troca o resto por '?'.
+ */
+function maquina() {
+  return String(os.hostname() || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\x20-\x7E]/g, '?')
+    .slice(0, 80);
+}
+
+/**
+ * Chromium usa o <title> como nome do documento na fila do Windows. Vai no
+ * começo do HTML; com <!DOCTYPE> vai logo depois dele (antes do doctype o
+ * Chromium cairia em quirks mode e o layout do ticket poderia mudar).
+ * O resto do HTML fica idêntico, byte a byte.
+ */
+function injetarTitulo(html, documento) {
+  const tag = `<title>${documento}</title>`;
+  const doctype = /^\uFEFF?\s*<!doctype[^>]*>/i.exec(html);
+  const pos = doctype ? doctype[0].length : 0;
+  return html.slice(0, pos) + tag + html.slice(pos);
+}
+
+// ── PowerShell (mesmo estilo do listarImpressoras) ─────────────────
+// execFile sem shell: nada de aspas do cmd. Timeout mata o processo e a janela
+// fica oculta (sem pisca-pisca de console a cada consulta).
+const PS_PREFIXO = "$ProgressPreference = 'SilentlyContinue'; "
+  + 'try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}; '
+  + "$ErrorActionPreference = 'Stop'; ";
+
+function runPowerShell(script, timeoutMs = 4000) {
+  return new Promise((resolve, reject) => {
+    if (!isWindows) {
+      reject(new Error('PowerShell indisponível fora do Windows'));
+      return;
+    }
+    execFile(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', PS_PREFIXO + script],
+      { timeout: timeoutMs, windowsHide: true },
+      (err, stdout) => (err ? reject(err) : resolve(String(stdout)))
+    );
+  });
+}
+
+// Texto entre aspas simples do PowerShell (aspas simples, inclusive as
+// tipográficas, viram duplas).
+const psTexto = (s) => `'${String(s).replace(/['\u2018\u2019\u201A\u201B]/g, '$&$&')}'`;
+
+const scriptJobs = (impressora) => `Get-PrintJob -PrinterName ${psTexto(impressora)} `
+  + "| Select-Object Id, DocumentName, @{n='JobStatus';e={[string]$_.JobStatus}} "
+  + '| ConvertTo-Json -Compress';
+
+const SCRIPT_IMPRESSORAS = 'Get-CimInstance Win32_Printer '
+  + '| Select-Object Name, PrinterStatus, DetectedErrorState, WorkOffline, PortName, Default '
+  + '| ConvertTo-Json -Compress';
+
+// ConvertTo-Json devolve nada (lista vazia), um objeto (1 item) ou um array.
+function listaJson(saida) {
+  const texto = String(saida || '').replace(/^\uFEFF/, '').trim();
+  if (!texto) return [];
+  const dado = JSON.parse(texto);
+  return Array.isArray(dado) ? dado : [dado];
+}
+
+// [string]$_.JobStatus vem com os nomes do enum [Flags] do PrintManagement
+// ("Printing, Retained"); se vier o número, traduz para os mesmos nomes.
+const JOB_STATUS_BITS = ['Paused', 'Error', 'Deleting', 'Spooling', 'Printing', 'Offline',
+  'PaperOut', 'Printed', 'Deleted', 'Blocked', 'UserIntervention', 'Restarted', 'Complete',
+  'Retained', 'RenderingLocally'];
+
+function textoJobStatus(valor) {
+  const s = String(valor ?? '').trim();
+  if (!/^\d+$/.test(s)) return s;
+  const nomes = JOB_STATUS_BITS.filter((_, i) => Number(s) & (1 << i));
+  return nomes.length ? nomes.join(', ') : 'Normal';
+}
+
+/** Win32_Printer → status legível do contrato (§3). */
+function statusImpressora(p = {}) {
+  const st = Number(p.PrinterStatus);
+  const det = Number(p.DetectedErrorState);
+  if (p.WorkOffline === true || st === 7 || det === 9) return 'Offline';
+  if (det === 4) return 'Sem papel';
+  if (det === 7) return 'Tampa aberta';
+  if ([6, 8, 10, 11].includes(det)) return 'Erro';
+  if (st === 6) return 'Parada';
+  if ([3, 4, 5].includes(st)) return 'Normal';
+  return 'Desconhecido';
+}
+
+function impressoraHeartbeat(p) {
+  const status = statusImpressora(p);
+  return {
+    nome: p.Name || '',
+    status,
+    offline: status === 'Offline',
+    erro: ['Normal', 'Desconhecido'].includes(status) ? null : status,
+    porta: p.PortName || null,
+    padrao: p.Default === true,
+  };
+}
+
+// ── Rastreio do trabalho na fila ───────────────────────────────────
+const ERRO_JOB = /Error|Offline|PaperOut|UserIntervention|Blocked/i;
+// "Manter documentos impressos" deixa o trabalho na fila como Printed/Complete:
+// isso é papel na mão, não "parado na fila".
+const JOB_CONCLUIDO = /Printed|Complete/i;
+const ERRO_IMPRESSORA = {
+  Offline: 'impressora offline',
+  'Sem papel': 'impressora sem papel',
+  'Tampa aberta': 'impressora com a tampa aberta',
+  Erro: 'impressora com erro',
+  Parada: 'impressora parada',
+};
+
+/**
+ * Decide o destino de UM trabalho que o webContents.print já entregou ao
+ * Windows. Puro: PowerShell, espera e relógio são injetados (testável sem
+ * Windows nem Electron). Nunca lança e nunca dá alarme falso: se não deu para
+ * checar, é impresso/indisponivel.
+ * @returns {Promise<{resultado, etapa, erro, confirmacao, visto_na_fila, job_status}>}
+ */
+async function rastrearJob({
+  impressora, documento, runPs = runPowerShell, sleep = delay, agora = Date.now,
+  limiteMs = 12000, intervaloMs = 1000,
+}) {
+  const inicio = agora();
+  let visto = false;
+  let jobStatus = null;
+  const fim = (resultado, extra) => ({
+    resultado, etapa: null, erro: null, confirmacao: null, ...extra, visto_na_fila: visto, job_status: jobStatus,
+  });
+  try {
+    // jv-1-1 não pode casar com jv-1-10
+    const nome = new RegExp(`${String(documento).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\\d)`);
+    for (;;) {
+      const job = listaJson(await runPs(scriptJobs(impressora)))
+        .find((j) => nome.test(String(j.DocumentName || '')));
+      if (job) {
+        visto = true;
+        jobStatus = textoJobStatus(job.JobStatus);
+        if (ERRO_JOB.test(jobStatus)) return fim('erro', { etapa: 'spooler', erro: jobStatus });
+        if (JOB_CONCLUIDO.test(jobStatus)) return fim('impresso', { confirmacao: 'fila_windows' });
+      } else if (visto) {
+        return fim('impresso', { confirmacao: 'fila_windows' });
+      } else {
+        // Nunca visto: saiu antes da 1ª olhada (térmica é rápida) ou nem entrou.
+        // Quem decide é o estado da impressora.
+        const alvo = String(impressora).toLowerCase();
+        const p = listaJson(await runPs(SCRIPT_IMPRESSORAS))
+          .find((i) => String(i.Name || '').toLowerCase() === alvo);
+        const status = p ? statusImpressora(p) : 'Desconhecido';
+        if (ERRO_IMPRESSORA[status]) return fim('erro', { etapa: 'spooler', erro: ERRO_IMPRESSORA[status] });
+        return fim('impresso', { confirmacao: status === 'Normal' ? 'status_impressora' : 'indisponivel' });
+      }
+      // Não cancela o trabalho: só avisa que está parado.
+      if (agora() - inicio >= limiteMs) return fim('erro', { etapa: 'spooler', erro: 'parado na fila do Windows' });
+      await sleep(intervaloMs);
+    }
+  } catch (_e) {
+    return fim('impresso', { confirmacao: 'indisponivel' });
+  }
+}
+
+// ── Resultado por idprint (contrato §2) ────────────────────────────
+const FORCA = ['indisponivel', 'status_impressora', 'fila_windows'];
+
+/** Junta as vias de uma entrega numa resposta só. */
+function agregarResultados(detalhe) {
+  const falhas = detalhe.filter((d) => d.resultado === 'erro');
+  if (falhas.length) {
+    return {
+      status: 'erro',
+      etapa: falhas.every((f) => f.etapa === 'antes_spooler') ? 'antes_spooler' : 'spooler',
+      erro: String(falhas[0].erro || 'erro sem descrição').slice(0, 500),
+      confirmacao: null,
+      impressora: falhas[0].impressora || null,
+    };
+  }
+  // Com várias vias vale a confirmação mais fraca.
+  const confirmacao = FORCA[Math.min(...detalhe.map((d) => Math.max(0, FORCA.indexOf(d.confirmacao))))];
+  return { status: 'impresso', etapa: null, erro: null, confirmacao, impressora: detalhe[0].impressora || null };
+}
+
+const ultimosErros = [];
+/** Anel com os 5 últimos erros de impressão (vai no heartbeat). */
+function registrarErro(erro, idprint = null) {
+  ultimosErros.unshift({ em: new Date().toISOString(), erro: String(erro || '').slice(0, 500), idprint: idprint ?? null });
+  ultimosErros.splice(5);
+}
+
+function configApi() {
+  const apiUrl = store.get('apiUrl');
+  const token = store.get('apiToken');
+  const idempresa = Number(store.get('idempresa'));
+  return apiUrl && token && idempresa ? { apiUrl, token, idempresa } : null;
+}
+
+async function postApi(rota, corpo, timeoutMs) {
+  const cfg = configApi();
+  if (!cfg) return null;
+  return fetch(`${cfg.apiUrl}${rota}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.token}` },
+    body: JSON.stringify({ idempresa: cfg.idempresa, maquina: maquina(), versao: VERSAO, ...corpo }),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+}
+
+let pendentes = 0;
+const enviosPendentes = () => pendentes;
+
+/**
+ * POST impressao/resultado sem segurar a próxima consulta: 5 s de timeout e no
+ * máximo 1 nova tentativa (só para rede/5xx). Nunca lança.
+ */
+async function enviarResultado(idprint, detalhe) {
+  pendentes += 1;
+  try {
+    const corpo = { idprint, ...agregarResultados(detalhe), detalhe };
+    let falha = null;
+    for (let tentativa = 1; tentativa <= 2; tentativa += 1) {
+      if (tentativa > 1) await delay(2000);
+      try {
+        const res = await postApi('impressao/resultado', corpo, 5000);
+        if (!res) return;
+        if (res.ok || res.status === 400) {
+          // 400 = a comanda não está mais "entregue": nada a fazer.
+          info('Resultado da impressão enviado', { metadata: { idprint, status: corpo.status, http: res.status } });
+          return;
+        }
+        if (res.status < 500) {
+          warn('API recusou o resultado da impressão', { metadata: { idprint, http: res.status } });
+          return;
+        }
+        falha = `HTTP ${res.status}`;
+      } catch (e) {
+        falha = e?.message || String(e);
+      }
+    }
+    warn('Não foi possível enviar o resultado da impressão', { metadata: { idprint, status: corpo.status, error: falha } });
+  } catch (e) {
+    warn('Erro ao montar o resultado da impressão', { metadata: { idprint, error: e?.message || String(e) } });
+  } finally {
+    pendentes -= 1;
+  }
+}
+
+// ── Heartbeat (contrato §3) ────────────────────────────────────────
+let heartbeatTimer = null;
+let heartbeatOk = true;
+
+async function enviarHeartbeat() {
+  try {
+    if (!configApi()) return;
+    let impressoras = [];
+    try {
+      impressoras = listaJson(await runPowerShell(SCRIPT_IMPRESSORAS)).map(impressoraHeartbeat);
+    } catch (_e) { impressoras = []; }
+    const res = await postApi('impressao/heartbeat', {
+      so: process.platform,
+      impressora_padrao: store.get('printer') || null,
+      papel_mm: Number(store.get('printer_paper_mm')) || null,
+      pausada: store.get('impressao_pausadaPeloUsuario') === true,
+      impressoras,
+      ultimos_erros: ultimosErros,
+    }, 5000);
+    if (res && !res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!heartbeatOk) info('Heartbeat da impressão voltou a responder');
+    heartbeatOk = true;
+  } catch (e) {
+    // Só loga a troca ok → falha (API fora não enche o log a cada minuto).
+    if (heartbeatOk) warn('Falha no heartbeat da impressão', { metadata: { error: e?.message || String(e) } });
+    heartbeatOk = false;
+  }
+}
+
+function startHeartbeat() {
+  if (heartbeatTimer) return;
+  enviarHeartbeat();
+  heartbeatTimer = setInterval(enviarHeartbeat, 60 * 1000);
+}
+
+function stopHeartbeat() {
+  clearInterval(heartbeatTimer);
+  heartbeatTimer = null;
+}
+
+// ── Logs sob comando (contrato §4) ─────────────────────────────────
+const CHAVE_PROIBIDA = /^conteudo|^preview|token|senha|password|secret|api_?key|authorization/i;
+
+function limparChaves(valor) {
+  if (Array.isArray(valor)) return valor.map(limparChaves);
+  if (!valor || typeof valor !== 'object') return valor;
+  return Object.fromEntries(Object.entries(valor)
+    .filter(([k]) => !CHAVE_PROIBIDA.test(k))
+    .map(([k, v]) => [k, limparChaves(v)]));
+}
+
+/** Uma linha de log → linha segura para sair da máquina, ou null (descarta). */
+function sanitizarLinha(linha) {
+  // filtro barato antes do JSON.parse: o log de ontem pode ter milhares de debug
+  if (!linha.trim() || linha.includes('"level":"debug"')) return null;
+  try {
+    const obj = JSON.parse(linha);
+    if (!obj || typeof obj !== 'object' || obj.level === 'debug') return null;
+    return JSON.stringify(limparChaves(obj));
+  } catch (_e) {
+    return null; // linha que não dá para sanitizar não sai
+  }
+}
+
+async function lerFim(arquivo, maxBytes) {
+  const fh = await fs.promises.open(arquivo, 'r');
+  try {
+    const { size } = await fh.stat();
+    const inicio = Math.max(0, size - maxBytes);
+    const buf = Buffer.alloc(size - inicio);
+    await fh.read(buf, 0, buf.length, inicio);
+    const texto = buf.toString('utf8');
+    return inicio > 0 ? texto.slice(texto.indexOf('\n') + 1) : texto; // 1ª linha veio cortada
+  } finally {
+    await fh.close();
+  }
+}
+
+/**
+ * Logs de impressão de hoje e ontem (atuais e girados) + fim do crash.log,
+ * sanitizados, do mais novo para o mais antigo, até `limiteBytes`. Lê arquivo a
+ * arquivo, assíncrono, para não travar o processo principal (onde a impressão
+ * roda).
+ */
+async function montarLogs({ dir = LOG_DIR, agora = new Date(), limiteBytes = 300 * 1024 } = {}) {
+  const dias = [getLogDateKey(agora), getLogDateKey(new Date(agora.getTime() - 24 * 60 * 60 * 1000))];
+  const padrao = new RegExp(`^(${dias.join('|')})-log-impressora\\.jsonl(\\.\\d+)?$`);
+  const arquivos = [];
+  for (const nome of await fs.promises.readdir(dir).catch(() => [])) {
+    if (nome !== 'crash.log' && !padrao.test(nome)) continue;
+    try {
+      arquivos.push({ nome, mtime: (await fs.promises.stat(path.join(dir, nome))).mtimeMs });
+    } catch (_e) { /* sumiu no meio */ }
+  }
+  arquivos.sort((a, b) => b.mtime - a.mtime); // mais novo primeiro (girado = conteúdo mais antigo)
+
+  let saida = '';
+  let bytes = 0;
+  for (const { nome } of arquivos) {
+    const arquivo = path.join(dir, nome);
+    const texto = await (nome === 'crash.log' ? lerFim(arquivo, 100 * 1024) : fs.promises.readFile(arquivo, 'utf8'))
+      .catch(() => '');
+    const linhas = texto.split(/\r?\n/).map(sanitizarLinha).filter(Boolean).reverse();
+    if (!linhas.length) continue;
+    for (const linha of [`# ${nome}`, ...linhas]) {
+      const tamanho = Buffer.byteLength(linha) + 1;
+      if (bytes + tamanho > limiteBytes) return saida;
+      saida += `${linha}\n`;
+      bytes += tamanho;
+    }
+  }
+  return saida;
+}
+
+let ultimoEnvioLogs = 0;
+
+/** cmd 'enviar_logs' do poll: no máximo 1 envio por minuto, sem bloquear nada. */
+function enviarLogs() {
+  if (Date.now() - ultimoEnvioLogs < 60 * 1000) return;
+  ultimoEnvioLogs = Date.now();
+  (async () => {
+    const conteudo = await montarLogs();
+    const res = await postApi('impressao/logs', { conteudo }, 15000);
+    info('Logs da impressão enviados sob comando', {
+      metadata: { http: res ? res.status : null, bytes: Buffer.byteLength(conteudo) },
+    });
+  })().catch((e) => warn('Falha ao enviar logs da impressão', { metadata: { error: e?.message || String(e) } }));
+}
+
+module.exports = {
+  VERSAO,
+  maquina,
+  injetarTitulo,
+  rastrearJob,
+  statusImpressora,
+  agregarResultados,
+  registrarErro,
+  enviarResultado,
+  enviosPendentes,
+  startHeartbeat,
+  stopHeartbeat,
+  sanitizarLinha,
+  montarLogs,
+  enviarLogs,
+};

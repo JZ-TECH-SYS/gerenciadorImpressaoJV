@@ -1,7 +1,7 @@
 {
   "name": "jv-printer",
   "description": "Gerenciador de impressão ClickExpress e WhatsApp",
-  "version": "4.0.6",
+  "version": "4.1.0",
   "main": "main.js",
   "author": {
     "name": "joaosn",
@@ -11,6 +11,7 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
+    "test": "node --test test/*.test.js",
     "dev": "nodemon --exec electron .",
     "pack": "electron-builder --dir",
     "build": "electron-builder",

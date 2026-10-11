@@ -1,11 +1,15 @@
 // core/api/ticketWatcher.js
 const consultarTickets = require('./consultarTickets');
 const imprimirHTML     = require('../impressora/imprimirHtml');
+const confirmacao      = require('../impressora/confirmacao');
 const Store            = require('electron-store');
 const { info, warn, error, debug } = require('../utils/printerLogger');
 
 const store = new Store();
 let ativo   = false;
+// v4.1: true durante um ciclo (consulta + impressão + rastreio). O updater
+// espera ficar ocioso antes do quitAndInstall.
+let ocupado = false;
 const RECENT_TICKET_TTL_MS = 15 * 1000;
 const recentPrintedTickets = new Map();
 
@@ -35,6 +39,19 @@ function getPrintingStatus() {
     ultimoTicketRef,
     impressoesHoje: (new Date().toDateString() === diaContagem) ? impressoesHoje : 0,
     ultimoErroImpressao
+  };
+}
+
+/** v4.1: true enquanto há ciclo de impressão ou resultado a caminho da API. */
+function isPrinting() {
+  return ocupado || confirmacao.enviosPendentes() > 0;
+}
+
+// Uma via do `detalhe` do POST impressao/resultado; `r` sobrescreve os padrões.
+function novaVia(impressora, documento, inicio, r) {
+  return {
+    impressora, documento, visto_na_fila: false, job_status: null,
+    etapa: null, erro: null, confirmacao: null, ...r, ms: Date.now() - inicio
   };
 }
 
@@ -79,10 +96,18 @@ async function startWatcher() {
   });
 
   while (ativo) {
+    ocupado = true;
     try {
-      const tickets = await consultarTickets();
+      const { tickets, idprint, confirmar, cmd } = await consultarTickets();
       ultimaConsultaEm = new Date().toISOString();
-      debug('Tickets consultados', { metadata: { quantidade: tickets.length } });
+      if (cmd === 'enviar_logs') confirmacao.enviarLogs();
+      if (tickets.length) {
+        debug('Tickets consultados', { metadata: { quantidade: tickets.length } });
+      }
+      // v4.1: com `confirmar` a API deixou a comanda "entregue" e espera o
+      // resultado desta entrega. Sem ele: exatamente o fluxo antigo.
+      const reportar = confirmar && idprint != null;
+      const detalhe = [];
       const impressoraPadrao = store.get('printer'); // Impressora padrão das configurações
       cleanupRecentPrintedTickets();
       
@@ -90,7 +115,11 @@ async function startWatcher() {
       console.log('[WATCHER] Total de tickets:', tickets.length);
       console.log('[WATCHER] Impressora padrão:', impressoraPadrao);
       
-      for (const item of tickets) {
+      for (const [indice, item] of tickets.entries()) {
+        const inicio = Date.now();
+        let printerName = null;
+        let documento = null;
+        let via = null; // destino desta via (só vai para a API com `reportar`)
         try {
           // Cada item agora é { texto: "...", impressora: "nome" ou null }
           const textoParaImprimir = item.texto || item; // Compatibilidade com formato antigo
@@ -105,14 +134,11 @@ async function startWatcher() {
           });
           
           // Se vier impressora específica, usa ela; senão usa a padrão
-          const printerName = impressoraEspecifica || impressoraPadrao;
+          printerName = impressoraEspecifica || impressoraPadrao;
           
           if (!printerName) {
-            console.warn('[WATCHER] ⚠️ Nenhuma impressora definida!');
-            warn('⚠️ Nenhuma impressora definida para este ticket', {
-              metadata: { ticket: ticketRef }
-            });
-            continue;
+            // v4.1: deixou de ser silencioso — é falha (antes do spooler).
+            throw new Error('nenhuma impressora definida para este ticket');
           }
 
           const ticketKey = getTicketDedupKey(item, printerName);
@@ -125,6 +151,7 @@ async function startWatcher() {
                 ttlMs: RECENT_TICKET_TTL_MS
               }
             });
+            via = { resultado: 'impresso', confirmacao: 'indisponivel' };
             continue;
           }
 
@@ -173,7 +200,13 @@ async function startWatcher() {
             }
           });
           
-          const resultado = await imprimirHTML({ msg: textoParaImprimir, printerName, paperWidthMm: Number(store.get('printer_paper_mm')) || null });
+          // Windows + confirmar: o <title> vira o nome do trabalho na fila.
+          documento = reportar && process.platform === 'win32' ? `jv-${idprint}-${indice + 1}` : null;
+          const msg = documento ? confirmacao.injetarTitulo(textoParaImprimir, documento) : textoParaImprimir;
+          const resultado = await imprimirHTML({ msg, printerName, paperWidthMm: Number(store.get('printer_paper_mm')) || null });
+          // Chegou ao spooler/CUPS: daqui em diante nunca é "antes_spooler"
+          // (reentregar duplicaria o papel).
+          via = { resultado: 'impresso', confirmacao: 'indisponivel' };
           markTicketAsPrinted(ticketKey);
           registrarImpressaoOk(ticketRef);
           console.log(`[WATCHER] ✅ Impresso! Job ID: ${resultado.jobId}, Source: ${resultado.source}`);
@@ -186,20 +219,41 @@ async function startWatcher() {
               ticketKey
             }
           });
+          if (documento) {
+            // Windows + confirmar: rastreio da fila (limitado a ~12 s; nunca lança).
+            via = await confirmacao.rastrearJob({ impressora: printerName, documento });
+            info('Resultado da via na fila', { metadata: { idprint, documento, impressora: printerName, ...via } });
+            if (via.resultado === 'erro') {
+              ultimoErroImpressao = { em: new Date().toISOString(), erro: via.erro, ticket: ticketRef };
+              confirmacao.registrarErro(via.erro, idprint);
+            }
+          }
         } catch (printErr) {
           ultimoErroImpressao = { em: new Date().toISOString(), erro: printErr.message, ticket: getTicketReference(item) };
           console.error('[WATCHER] ❌ Erro ao imprimir:', printErr.message);
           error('❌ Erro ao imprimir ticket', {
             metadata: { error: printErr, ticket: getTicketReference(item) }
           });
+          if (!via) {
+            const motivo = printErr?.message || String(printErr);
+            via = { resultado: 'erro', etapa: 'antes_spooler', erro: motivo };
+            confirmacao.registrarErro(motivo, idprint);
+          }
+        } finally {
+          if (via) detalhe.push(novaVia(printerName, documento, inicio, via));
         }
       }
+      if (reportar && detalhe.length) {
+        confirmacao.enviarResultado(idprint, detalhe); // sem await: não segura a próxima consulta
+      }
+      ocupado = false;
       await delay(500);
     } catch (e) {
       console.error('[WATCHER] ❌ Erro no loop:', e.message);
       error('❌ Erro no watcher de tickets', {
         metadata: { error: e }
       });
+      ocupado = false;
       await delay(3000);
     }
   }
@@ -214,4 +268,4 @@ function delay(ms) {
   return new Promise(res => setTimeout(res, ms));
 }
 
-module.exports = { startWatcher, stopWatcher, getPrintingStatus };
+module.exports = { startWatcher, stopWatcher, getPrintingStatus, isPrinting };

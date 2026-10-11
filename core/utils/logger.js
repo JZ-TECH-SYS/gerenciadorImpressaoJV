@@ -101,17 +101,6 @@ function sanitizeMetadata(metadata = {}) {
   return entries.join(' | ');
 }
 
-function prepararConteudoParaLog(conteudo, { maxLength = 24 * 1024 } = {}) {
-  if (typeof conteudo !== 'string') return null;
-  const normalized = conteudo.replace(/\r\n/g, '\n').trim();
-  if (!normalized) return null;
-  if (normalized.length <= maxLength) {
-    return normalized;
-  }
-  const remainder = normalized.length - maxLength;
-  return `${normalized.slice(0, maxLength)}\n... [truncado: +${remainder} caracteres]`;
-}
-
 function appendLine(filePath, line) {
   rotateFileIfNeeded(filePath);
   fs.promises.appendFile(filePath, line, 'utf8').catch((error) => {
@@ -146,6 +135,7 @@ const warn = (message, options = {}) => log(message, { ...options, level: 'warn'
 const error = (message, options = {}) => log(message, { ...options, level: 'error' });
 const debug = (message, options = {}) => log(message, { ...options, level: 'debug' });
 
+// v4.1: so o TAMANHO do ticket — o HTML tem dados do cliente e nao vai para log.
 function logImpressao(impressora, conteudo, jobId = null) {
   const tamanho = typeof conteudo === 'string' ? conteudo.length : null;
   const meta = {
@@ -156,10 +146,6 @@ function logImpressao(impressora, conteudo, jobId = null) {
   const mensagem = jobId
     ? `IMPRESSAO - Impressora: ${impressora} | JobID: ${jobId}`
     : `IMPRESSAO - Impressora: ${impressora}`;
-  const conteudoLog = prepararConteudoParaLog(conteudo);
-  if (conteudoLog) {
-    meta.conteudo = conteudoLog;
-  }
   log(mensagem, { level: jobId ? 'info' : 'warn', channel: 'printer', metadata: meta });
 }
 

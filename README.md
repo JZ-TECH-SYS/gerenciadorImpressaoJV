@@ -136,7 +136,7 @@ npm run dist:linux
 - `core/api/ticketWatcher.js`
 - `core/api/consultarTickets.js`
 - `core/impressora/imprimirHtml.js`
-- `core/utils/windowsJobMonitor.js`
+- `core/impressora/confirmacao.js`
 - `core/utils/logger.js`
 - `core/myzap/autoConfig.js`
 - `core/api/whatsappQueueWatcher.js`
