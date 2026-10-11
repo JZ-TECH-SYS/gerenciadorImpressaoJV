@@ -409,9 +409,10 @@ test('adotarTravadas: jv-* parado na fila ao abrir entra na vigia (impresso guar
 });
 
 test('passoTardios: avisa a API (tardio + hora em que saiu) e tira da vigia; rede fora mantém', async () => {
-  const runPs = async (s) => (s.includes('Win32_Printer')
-    ? JSON.stringify({ Name: MPT, PrinterStatus: 3, DetectedErrorState: 2, WorkOffline: false })
-    : '');
+  const runPs = async () => JSON.stringify({
+    impressoras: [{ Name: MPT, PrinterStatus: 3, DetectedErrorState: 2, WorkOffline: false }],
+    filas: { [MPT]: [] },
+  });
   const corpos = [];
   let resposta = { ok: false, status: 503 };
   global.fetch = async (url, opts) => { corpos.push({ url, ...JSON.parse(opts.body) }); return resposta; };
@@ -433,4 +434,52 @@ test('passoTardios: avisa a API (tardio + hora em que saiu) e tira da vigia; red
   await confirmacao.passoTardios({ runPs });
   assert.deepEqual(storeData.impressao_tardios, []);
   confirmacao.stopVigiaTardia();
+});
+
+// ── v4.2.1: ensaio sem papel (11/10) ───────────────────────────────
+const jobId = (Id, DocumentName, JobStatus, extra = {}) => ({ Id, DocumentName, JobStatus, ...extra });
+
+test('decidirTardios: via de trás some com a da frente ainda imprimindo → tirada da fila (a fila imprime em ordem)', () => {
+  // sem papel a MPT-II diz "sem erro": a da frente fica em Printing e a de trás só sai se alguém tirar
+  const duas = [vigiada({ idprint: 1, vias: [via({ documento: 'jv-1-1' })] }), vigiada({ idprint: 2, vias: [via({ documento: 'jv-2-1' })] })];
+  const fila = [jobId(9, 'jv-1-1', 'Printing, Retained', { PagesPrinted: 0, TotalPages: 1 }), jobId(10, 'jv-2-1', '')];
+  const r1 = confirmacao.decidirTardios(duas, leitura(fila), 2000);
+  assert.deepEqual(r1.lista.map((t) => [t.vias[0].job_id, t.vias[0].paginas]), [[9, '0/1'], [10, null]]);
+  const r2 = confirmacao.decidirTardios(r1.lista, leitura([fila[0]]), 3000); // cancelaram a de trás
+  assert.deepEqual(r2.envios, [{ idprint: 2, status: 'erro', impressora: MPT, saiu_em: 3000 }]);
+  // a da frente sai sem "Deleting" visto: papel (colocaram bobina)
+  assert.deepEqual(confirmacao.decidirTardios(r2.lista, leitura([]), 4000).envios.map((e) => [e.idprint, e.status]), [[1, 'impresso'], [2, 'erro']]);
+  // via anterior já impressa e guardada ("manter documentos impressos") não segura a fila
+  const guardada = confirmacao.decidirTardios(r1.lista, leitura([jobId(9, 'jv-1-1', 'Printed, Retained')]), 5000);
+  assert.deepEqual(guardada.envios.map((e) => [e.idprint, e.status]), [[1, 'impresso'], [2, 'impresso']]);
+});
+
+test('lerFilas: uma chamada ao PowerShell com as filas e o estado; impressora que não respondeu fica sem leitura', async () => {
+  const scripts = [];
+  const runPs = async (s) => {
+    scripts.push(s);
+    return JSON.stringify({
+      impressoras: { Name: MPT, PrinterStatus: 7, WorkOffline: true }, // 1 impressora vem como objeto
+      filas: { [MPT]: jobId(9, 'jv-118987-1', 'Error') }, // 1 trabalho também
+    });
+  };
+  const l = await confirmacao.lerFilas([MPT, "Caixa d'Água"], runPs);
+  assert.equal(scripts.length, 1);
+  assert.ok(scripts[0].includes("'MPT-II Recibo (USB)', 'Caixa d''Água'") && scripts[0].includes('Win32_Printer'));
+  assert.deepEqual(l.get(MPT), { jobs: [jobId(9, 'jv-118987-1', 'Error')], status: 'Offline' });
+  assert.equal(l.has("Caixa d'Água"), false);
+  assert.equal((await confirmacao.lerFilas([MPT], async () => { throw new Error('timeout'); })).size, 0);
+});
+
+test('intervaloTardios: 1,5 s com via imprimindo ou sendo apagada; 5 s parada', () => {
+  assert.equal(confirmacao.intervaloTardios([vigiada({ vias: [via({ ultimo: 'Printing, Retained' })] })]), 1500);
+  assert.equal(confirmacao.intervaloTardios([vigiada({ vias: [via({ ultimo: 'Deleting, Printing' })] })]), 1500);
+  assert.equal(confirmacao.intervaloTardios([vigiada({ vias: [via({ ultimo: 'Error, Offline' })] })]), 5000);
+  assert.equal(confirmacao.intervaloTardios([vigiada({ vias: [via({ ultimo: 'Printing', saiu_em: 9 })] })]), 5000);
+});
+
+test('viasTravadas: o heartbeat leva o que o Windows diz de cada via ainda travada', () => {
+  storeData.impressao_tardios = [vigiada({ desde: Date.UTC(2026, 9, 11, 15, 41), vias: [via({ ultimo: 'Printing, Retained', paginas: '0/1' }), via({ documento: 'jv-118987-2', saiu_em: 5 })] })];
+  assert.deepEqual(confirmacao.viasTravadas(), [{ idprint: 118987, impressora: MPT, status: 'Printing, Retained', paginas: '0/1', desde: '2026-10-11T15:41:00.000Z' }]);
+  storeData.impressao_tardios = [];
 });
