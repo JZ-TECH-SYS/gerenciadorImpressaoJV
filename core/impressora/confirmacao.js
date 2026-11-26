@@ -5,6 +5,7 @@
 // v4.2 — a via que travou na fila do Windows fica vigiada até sair (tardio).
 // v4.2.2 — PowerShell frio: a 1ª leitura de cada rastreio tem mais tempo e as
 // leituras da abertura (heartbeat, adoção) também, o que já deixa o PowerShell quente.
+// v4.2.3 — impressão que travou (o processo filho foi morto sem resposta): a fila decide.
 // REGRA: nada aqui pode quebrar ou atrasar a impressão — toda chamada de rede
 // tem timeout e todo erro só vira log.
 const os = require('os');
@@ -145,11 +146,15 @@ const ERRO_IMPRESSORA = {
  * Windows. Puro: PowerShell, espera e relógio são injetados (testável sem
  * Windows nem Electron). Nunca lança e nunca dá alarme falso: se não deu para
  * checar, é impresso/indisponivel.
+ * `travou` (v4.2.3): o print não respondeu e o filho foi morto, então não há prova de
+ * entrega. Via fora da fila (ou PowerShell sem resposta) = erro com esse motivo, etapa
+ * 'travou' (nunca 'antes_spooler': a API reentregaria e o papel podia sair em dobro);
+ * via na fila segue a regra normal (e a vigia do tardio).
  * @returns {Promise<{resultado, etapa, erro, confirmacao, visto_na_fila, job_status}>}
  */
 async function rastrearJob({
   impressora, documento, runPs = runPowerShell, sleep = delay, agora = Date.now,
-  limiteMs = 12000, intervaloMs = 1000, primeiraLeituraMs = 10000,
+  limiteMs = 12000, intervaloMs = 1000, primeiraLeituraMs = 10000, travou = null,
 }) {
   // Depois de um tempo parado (PC recém-ligado) a 1ª consulta passa dos 4 s: cortada, virava
   // "impresso sem prova" com a via presa na fila (Di Tali e Vaqueiro, 11/10). Ela ganha mais
@@ -173,6 +178,8 @@ async function rastrearJob({
         if (JOB_CONCLUIDO.test(jobStatus)) return fim('impresso', { confirmacao: 'fila_windows' });
       } else if (visto) {
         return fim('impresso', { confirmacao: 'fila_windows' });
+      } else if (travou) {
+        return fim('erro', { etapa: 'travou', erro: travou });
       } else {
         // Nunca visto: saiu antes da 1ª olhada (térmica é rápida) ou nem entrou.
         // Quem decide é o estado da impressora.
@@ -188,7 +195,7 @@ async function rastrearJob({
       await sleep(intervaloMs);
     }
   } catch (_e) {
-    return fim('impresso', { confirmacao: 'indisponivel' });
+    return travou ? fim('erro', { etapa: 'travou', erro: travou }) : fim('impresso', { confirmacao: 'indisponivel' });
   }
 }
 

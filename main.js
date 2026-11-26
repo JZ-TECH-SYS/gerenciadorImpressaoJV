@@ -18,7 +18,6 @@ const {
   ipcMain,
   crashReporter
 } = require('electron');
-const { autoUpdater } = require('electron-updater');
 
 // Estabilidade com drivers de impressora térmica (EPSON TM-T etc.):
 // crashes nativos do GPU process matavam o app inteiro sem log.
@@ -32,6 +31,16 @@ crashReporter.start({
   uploadToServer: false,
   compress: false
 });
+
+// v4.2.3: processo filho de impressão (core/impressora/imprimirHtml.js) — imprime uma via e
+// sai. Sem single-instance lock, bandeja, auto-update, MyZap nem watchers.
+const argFilhoImpressao = process.argv.find((a) => a.startsWith('--jv-imprimir='));
+if (argFilhoImpressao) {
+  require('./core/impressora/imprimirHtml').rodarFilho(argFilhoImpressao.slice('--jv-imprimir='.length));
+  return;
+}
+
+const { autoUpdater } = require('electron-updater');
 
 const path = require('path');
 const Store = require('electron-store');

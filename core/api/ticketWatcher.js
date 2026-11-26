@@ -7,6 +7,8 @@ const { info, warn, error, debug } = require('../utils/printerLogger');
 
 const store = new Store();
 let ativo   = false;
+// v4.2.3: no Windows o imprimirHTML roda num processo filho com limite de tempo: uma
+// impressão travada não para mais este laço (a Capucho ficou 6 min sem consultar a fila).
 // v4.1: true durante um ciclo (consulta + impressão + rastreio). O updater
 // espera ficar ocioso antes do quitAndInstall.
 let ocupado = false;
@@ -236,8 +238,18 @@ async function startWatcher() {
           });
           if (!via) {
             const motivo = printErr?.message || String(printErr);
-            via = { resultado: 'erro', etapa: 'antes_spooler', erro: motivo };
-            confirmacao.registrarErro(motivo, idprint);
+            if (printErr?.travou) {
+              // v4.2.3: o print travou e o processo de impressão foi morto — o papel pode ter
+              // saído. Nunca 'antes_spooler' (a API reentregaria) e nunca imprime de novo daqui:
+              // com a via na fila do Windows quem decide é a fila (rastreio + tardio).
+              via = documento
+                ? await confirmacao.rastrearJob({ impressora: printerName, documento, travou: motivo, limiteMs: 0 })
+                : { resultado: 'erro', etapa: 'travou', erro: motivo };
+              info('Resultado da via que travou', { metadata: { idprint, documento, impressora: printerName, ...via } });
+            } else {
+              via = { resultado: 'erro', etapa: 'antes_spooler', erro: motivo };
+            }
+            if (via.resultado === 'erro') confirmacao.registrarErro(via.erro, idprint);
           }
         } finally {
           if (via) detalhe.push(novaVia(printerName, documento, inicio, via));

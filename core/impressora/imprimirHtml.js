@@ -1,14 +1,20 @@
 // core/impressora/imprimirHtml.js
-const { BrowserWindow } = require('electron');
+const { app, BrowserWindow } = require('electron');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-const { exec } = require('child_process');
+const { exec, execFile, spawn } = require('child_process');
 const util = require('util');
 const execPromise = util.promisify(exec);
 const { info, debug, warn, error, logImpressao } = require('../utils/printerLogger');
 
-const PRINT_TIMEOUT_MS = 30000; // 30s max por impressao
+// v4.2.3: no Windows cada via imprime num processo filho (main.js com FLAG_FILHO). O driver
+// que trava dentro do webContents.print congela o processo inteiro: antes era o gerenciador
+// (Capucho, 25/11/2026: 5,5 min parado, via perdida); agora é o filho, que morre no limite.
+const FLAG_FILHO = '--jv-imprimir=';
+// Normal: 1,5–4 s até o callback (+1–2 s para abrir o filho). Depois do limite ainda vem
+// uma leitura da fila do Windows (até 10 s): o resultado chega à API em até ~45 s.
+const LIMITE_FILHO_MS = 35000;
 const CRASH_LOG_PATH = path.join(os.tmpdir(), 'jv-printer', 'logs', 'crash.log');
 
 /** Grava log sincrono de emergencia (sobrevive a crash) */
@@ -328,15 +334,6 @@ async function imprimirHTML({
 }) {
   if (!printerName) throw new Error('Nome da impressora não informado');
 
-  const larguraMm = Number(paperWidthMm) || null;
-  const larguraUtilMicrons = larguraMm
-    ? (LARGURA_UTIL_MICRONS[larguraMm] || Math.round(larguraMm * 1000 * 0.83))
-    : null;
-  // viewport casando com a area imprimivel => scrollHeight ~ altura no papel
-  const viewportPx = larguraUtilMicrons
-    ? Math.max(120, Math.round(larguraUtilMicrons / MICRONS_POR_PX))
-    : widthPx;
-
   // Log inicial da tentativa de impressão
   logImpressao(printerName, msg, null);
   info('Iniciando impressão HTML', {
@@ -374,8 +371,152 @@ async function imprimirHTML({
     });
   }
 
-  // ============ WINDOWS: Usa Electron webContents.print() ============
-  
+  // ============ WINDOWS: webContents.print() num processo filho ============
+  return imprimirEmProcessoFilho({ msg, printerName, widthPx, silent, paperWidthMm });
+}
+
+// ── Processo filho de impressão (Windows) ─────────────────────────
+function abrirFilho(base) {
+  const args = app.isPackaged ? [] : [app.getAppPath()];
+  const filho = spawn(process.execPath, [...args, `${FLAG_FILHO}${base}`], { stdio: 'ignore', windowsHide: true });
+  delete process.env.JV_ENSAIO_TRAVAR_IMPRESSAO; // ensaio: só a 1ª impressão trava
+  return filho;
+}
+
+/** Mata o filho e o que ele abriu (renderer, GPU). Nunca lança. */
+function matarArvore(pid) {
+  return new Promise((resolve) => {
+    if (!pid) { resolve(); return; }
+    if (!isWindows) {
+      try { process.kill(pid, 'SIGKILL'); } catch (_e) { /* já saiu */ }
+      resolve();
+      return;
+    }
+    execFile('taskkill', ['/PID', String(pid), '/T', '/F'], { timeout: 5000, windowsHide: true }, () => resolve());
+  });
+}
+
+/** Última linha inteira do arquivo de fases (o filho morto no meio da escrita deixa a última cortada). */
+function lerFase(arquivo) {
+  let ultima = {};
+  try {
+    for (const linha of fs.readFileSync(arquivo, 'utf8').split('\n')) {
+      try { ultima = JSON.parse(linha); } catch (_e) { /* vazia ou cortada */ }
+    }
+  } catch (_e) { /* o filho nem começou */ }
+  return ultima;
+}
+
+// travou = o print foi chamado e não respondeu: o papel PODE ter saído. Quem chama nunca
+// trata como "antes do spooler" (a API reentregaria = via em dobro).
+const erroImpressao = (mensagem, travou) => Object.assign(new Error(mensagem), { travou: Boolean(travou) });
+
+/**
+ * Imprime num processo filho e espera no máximo `limiteMs`: estourou, mata a árvore do filho.
+ * O filho anota as fases em <base>.fase ('carregando' → 'imprimindo' → 'fim').
+ * @returns {Promise<{success, jobId, source}>} ou rejeita; `err.travou` = sem resposta depois do print
+ */
+async function imprimirEmProcessoFilho(opcoes, { abrir = abrirFilho, limiteMs = LIMITE_FILHO_MS } = {}) {
+  const { msg, printerName } = opcoes;
+  const base = path.join(os.tmpdir(), 'jv-printer', `print-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  try {
+    fs.mkdirSync(path.dirname(base), { recursive: true });
+    fs.writeFileSync(`${base}.html`, msg, 'utf8');
+    fs.writeFileSync(`${base}.json`, JSON.stringify({ ...opcoes, msg: undefined }), 'utf8');
+  } catch (tmpErr) {
+    error('Falha ao gravar HTML temporario para impressao', {
+      metadata: { impressora: printerName, error: tmpErr.message, base }
+    });
+    emergencyLog('PRINT_FAIL_TMP_FILE', { impressora: printerName, error: tmpErr.message });
+    throw new Error(`Falha ao preparar conteudo para impressao: ${tmpErr.message}`);
+  }
+  try {
+    const filho = abrir(base);
+    const saida = await new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(null), limiteMs);
+      const fim = (codigo) => { clearTimeout(timer); resolve({ codigo }); };
+      filho.once('exit', (code, signal) => fim(code ?? signal));
+      filho.once('error', (e) => fim(e?.code || e?.message));
+    });
+    if (!saida) await matarArvore(filho.pid);
+    const r = lerFase(`${base}.fase`);
+    if (r.fase === 'fim') {
+      if (r.ok) return { success: true, jobId: r.jobId, source: 'chromium' };
+      throw erroImpressao(r.erro || 'Erro desconhecido na impressao', r.travou);
+    }
+    const s = Math.round(limiteMs / 1000);
+    const imprimindo = r.fase === 'imprimindo';
+    let motivo;
+    if (imprimindo) {
+      motivo = saida
+        ? `impressão interrompida: o processo de impressão fechou sem responder (saída ${saida.codigo})`
+        : `impressora travou: sem resposta do Windows em ${s} s`;
+    } else {
+      // o print nunca foi chamado: nada chegou ao Windows
+      motivo = saida
+        ? `o processo de impressão fechou antes de imprimir (saída ${saida.codigo})`
+        : `a comanda não carregou em ${s} s`;
+    }
+    const dados = { impressora: printerName, fase: r.fase || null, limiteMs, pid: filho.pid, saida: saida && saida.codigo, motivo };
+    error('Impressão sem resposta: processo de impressão encerrado', { metadata: dados });
+    emergencyLog('PRINT_TIMEOUT', dados);
+    throw erroImpressao(motivo, imprimindo);
+  } finally {
+    for (const ext of ['.json', '.html', '.fase']) {
+      try { fs.unlinkSync(base + ext); } catch (_e) { /* ok */ }
+    }
+  }
+}
+
+/** Entrada do processo filho (main.js com FLAG_FILHO): imprime uma via e sai. */
+function rodarFilho(base) {
+  const marcar = (dados) => {
+    try { fs.appendFileSync(`${base}.fase`, `${JSON.stringify(dados)}\n`, 'utf8'); } catch (_e) { /* o pai decide sem */ }
+  };
+  marcar({ fase: 'carregando', pid: process.pid });
+  // sem isto o Electron abre uma caixa de erro na tela da loja; o pai decide pela última fase
+  process.on('uncaughtException', (e) => {
+    emergencyLog('CRASH_FILHO_IMPRESSAO', { error: e?.message || String(e), pid: process.pid });
+    app.exit(1);
+  });
+  // perfil próprio: não disputa os arquivos do Chromium (e o config.json) com o gerenciador aberto
+  const perfil = path.join(os.tmpdir(), 'jv-printer', 'impressao-filho');
+  fs.mkdirSync(perfil, { recursive: true }); // setPath lança se a pasta não existe
+  app.setPath('userData', perfil);
+  app.on('window-all-closed', () => {}); // quem fecha é o fim da impressão
+  app.whenReady()
+    .then(() => imprimirNestaJanela({
+      ...JSON.parse(fs.readFileSync(`${base}.json`, 'utf8')),
+      msg: fs.readFileSync(`${base}.html`, 'utf8'),
+      tmpHtmlPath: `${base}.html`,
+      marcar,
+    }))
+    .then(
+      (r) => marcar({ fase: 'fim', ok: true, jobId: r.jobId }),
+      (e) => marcar({ fase: 'fim', ok: false, erro: e?.message || String(e), travou: Boolean(e?.travou) })
+    )
+    .finally(() => setTimeout(() => app.exit(0), 200)); // 200 ms: o log (assíncrono) termina de gravar
+}
+
+/** Roda no processo filho: carrega o HTML numa janela oculta e chama o webContents.print. */
+async function imprimirNestaJanela({
+  msg,
+  printerName,
+  widthPx = 576,
+  silent = true,
+  paperWidthMm = null,
+  tmpHtmlPath,
+  marcar = () => {}
+}) {
+  const larguraMm = Number(paperWidthMm) || null;
+  const larguraUtilMicrons = larguraMm
+    ? (LARGURA_UTIL_MICRONS[larguraMm] || Math.round(larguraMm * 1000 * 0.83))
+    : null;
+  // viewport casando com a area imprimivel => scrollHeight ~ altura no papel
+  const viewportPx = larguraUtilMicrons
+    ? Math.max(120, Math.round(larguraUtilMicrons / MICRONS_POR_PX))
+    : widthPx;
+
   // Análise do HTML antes de carregar
   const temImagem = msg.includes('data:image');
   const temQRCode = msg.toLowerCase().includes('qr code');
@@ -409,22 +550,9 @@ async function imprimirHTML({
     pid: process.pid
   });
 
-  // Grava HTML em arquivo temporario — evita crash nativo que ocorre
-  // com data: URLs grandes/complexas no Chromium (principalmente com
-  // imagens base64 ou HTML pesado em impressoras termicas)
-  const tmpHtmlPath = path.join(os.tmpdir(), `jv-print-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.html`);
-  try {
-    const tmpDir = path.dirname(tmpHtmlPath);
-    if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
-    fs.writeFileSync(tmpHtmlPath, msg, 'utf8');
-  } catch (tmpErr) {
-    error('Falha ao gravar HTML temporario para impressao', {
-      metadata: { impressora: printerName, error: tmpErr.message, tmpHtmlPath }
-    });
-    emergencyLog('PRINT_FAIL_TMP_FILE', { impressora: printerName, error: tmpErr.message });
-    throw new Error(`Falha ao preparar conteudo para impressao: ${tmpErr.message}`);
-  }
-
+  // O HTML vem num arquivo temporario gravado pelo pai — evita crash nativo
+  // que ocorre com data: URLs grandes/complexas no Chromium (principalmente
+  // com imagens base64 ou HTML pesado em impressoras termicas)
   function cleanupTmpHtml() {
     try { fs.unlinkSync(tmpHtmlPath); } catch (_e) { /* ok */ }
   }
@@ -541,28 +669,20 @@ async function imprimirHTML({
     }
   }
 
-  emergencyLog('PRINT_SENDING', { impressora: printerName, fase: 'webContents.print', pageSize: pageSizeExplicito });
+  emergencyLog('PRINT_SENDING', { impressora: printerName, fase: 'webContents.print', pageSize: pageSizeExplicito, pid: process.pid });
+  marcar({ fase: 'imprimindo' }); // daqui em diante o papel pode sair: o pai nunca trata como "antes do spooler"
+  // ensaio (roteiro em docs/impressao): congela este processo como o driver da Capucho congelou
+  if (process.env.JV_ENSAIO_TRAVAR_IMPRESSAO === '1') Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
 
+  // Sem timeout aqui: quem limita é o pai (LIMITE_FILHO_MS), que mata este processo.
   return new Promise((resolve, reject) => {
     let settled = false;
-
-    // Timeout de seguranca — se nada acontecer em 30s, rejeita e limpa
-    const timeout = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      const msg = `Timeout de ${PRINT_TIMEOUT_MS}ms na impressao para ${printerName}`;
-      error(msg, { metadata: { impressora: printerName, timeout: PRINT_TIMEOUT_MS } });
-      emergencyLog('PRINT_TIMEOUT', { impressora: printerName, timeout: PRINT_TIMEOUT_MS });
-      safeCloseWin();
-      reject(new Error(msg));
-    }, PRINT_TIMEOUT_MS);
 
     // Se o renderer crashar durante o print, rejeita a promise
     const onRendererGone = () => {
       if (settled) return;
       settled = true;
-      clearTimeout(timeout);
-      reject(new Error('Renderer crashou durante impressao. Verifique crash.log.'));
+      reject(erroImpressao('impressão interrompida: o renderer morreu durante a impressão (ver crash.log)', true));
     };
     win.webContents.once('render-process-gone', onRendererGone);
     win.webContents.once('crashed', onRendererGone);
@@ -578,7 +698,6 @@ async function imprimirHTML({
         async (success, failureReason) => {
           if (settled) return;
           settled = true;
-          clearTimeout(timeout);
 
           try {
             if (success) {
@@ -617,7 +736,6 @@ async function imprimirHTML({
     } catch (printErr) {
       if (settled) return;
       settled = true;
-      clearTimeout(timeout);
       error('Erro ao chamar webContents.print()', {
         metadata: { impressora: printerName, error: printErr.message, stack: printErr.stack }
       });
@@ -629,3 +747,6 @@ async function imprimirHTML({
 }
 
 module.exports = imprimirHTML;
+module.exports.FLAG_FILHO = FLAG_FILHO;
+module.exports.rodarFilho = rodarFilho;
+module.exports.imprimirEmProcessoFilho = imprimirEmProcessoFilho;

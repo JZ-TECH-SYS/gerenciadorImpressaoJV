@@ -173,6 +173,39 @@ test('rastrearJob: 1ª leitura passa até dos 10 s → impresso/indisponivel (nu
   assert.equal(c.tempo(), 10000);
 });
 
+// v4.2.3: o print não respondeu e o processo filho foi morto (Capucho, 25/11/2026). Sem prova,
+// nunca "impresso"; via na fila do Windows segue a regra normal e entra na vigia do tardio.
+test('rastrearJob travou: via fora da fila → erro com o motivo, etapa travou (nunca antes_spooler)', async () => {
+  const motivo = 'impressora travou: sem resposta do Windows em 35 s';
+  const c = cenario({ impressoras: [pronta] }); // impressora "pronta": sem a trava daria impresso
+  assert.deepEqual(await c.rastrear({ travou: motivo, limiteMs: 0 }), {
+    resultado: 'erro', etapa: 'travou', erro: motivo, confirmacao: null, visto_na_fila: false, job_status: null,
+  });
+  assert.equal(c.scripts.length, 1); // uma leitura só: o limite de tempo já passou
+  // PowerShell sem resposta também não vira "impresso sem prova"
+  assert.equal((await cenario({ falhar: true }).rastrear({ travou: motivo, limiteMs: 0 })).etapa, 'travou');
+  // agregada, vai para a API como erro de impressora (a API não reentrega)
+  const agregado = confirmacao.agregarResultados([{ impressora: 'MP-4200 TH', resultado: 'erro', etapa: 'travou', erro: motivo }]);
+  assert.equal(agregado.status, 'erro');
+  assert.equal(agregado.etapa, 'spooler');
+});
+
+test('rastrearJob travou: via presa na fila do Windows → erro/spooler visto (vigia do tardio); saiu → impresso', async () => {
+  const motivo = 'impressora travou: sem resposta do Windows em 35 s';
+  const presa = await cenario({ filas: [[job('jv-118924-1', 'Printing')]] }).rastrear({ travou: motivo, limiteMs: 0 });
+  assert.deepEqual(presa, {
+    resultado: 'erro', etapa: 'spooler', erro: 'parado na fila do Windows', confirmacao: null, visto_na_fila: true, job_status: 'Printing',
+  });
+  const detalhe = [{ ...presa, impressora: 'EPSON TM-T20', documento: 'jv-118924-1' }];
+  const antes = storeData.impressao_tardios;
+  confirmacao.vigiarTardio(118924, detalhe);
+  assert.ok(storeData.impressao_tardios.some((t) => t.idprint === 118924));
+  confirmacao.stopVigiaTardia();
+  storeData.impressao_tardios = antes;
+  const impressa = await cenario({ filas: [[job('jv-118924-1', 'Printed')]] }).rastrear({ travou: motivo, limiteMs: 0 });
+  assert.equal(impressa.resultado, 'impresso');
+});
+
 // ── agregação por idprint ──────────────────────────────────────────
 test('agregarResultados: com várias vias vale a confirmação mais fraca', () => {
   const via = (c) => ({ impressora: 'A', resultado: 'impresso', confirmacao: c });
