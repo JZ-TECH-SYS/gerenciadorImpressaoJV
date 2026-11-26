@@ -2,8 +2,8 @@
 
 > Chamado de 25/11/2026 (Capucho Lanches, pedido #88463, via 128081). Status: conserto na
 > raiz no gerenciador 4.2.3 (branch `fix/impressao-nao-congela`, não publicado), ensaiado no
-> Windows em 25/11/2026 sem papel (impressora desconectada). Falta o ensaio com papel
-> ([[roteiro-ensaio-impressao-travada]]) e o ok do dono para a `main`.
+> Windows com papel em 25/11/2026 (MPT-II, empresa 1). Falta o ok do dono para a `main`.
+> Para repetir: [[roteiro-ensaio-impressao-travada]].
 
 ## O que aconteceu
 
@@ -129,8 +129,23 @@ Também conferido: heartbeat da 4.2.3 aceito (online); nenhum `print-*` sobrou n
 `%TEMP%\jv-printer`, nem do filho morto; perfil do filho com 1,8 MB. No fim, as vias de teste
 foram tiradas da fila do Windows e o PC voltou para a 4.2.2 com o `config.json` de antes.
 
-Falta, no notebook com a impressora: o papel do caso A e a via seguinte saindo no papel no caso B
-([[roteiro-ensaio-impressao-travada]]).
+### Com papel (25/11/2026, 22:06)
+
+A mesma MPT-II, agora conectada (USB `VID_0483&PID_5743` presente e `WorkOffline=False`, conferido
+antes de cada via). O roteiro rodou inteiro em 50 s: a impressora dorme sozinha para economizar
+bateria.
+
+| Via | O que se fez | Log local | API (`filaprint_evento`) |
+|-----|--------------|-----------|--------------------------|
+| 128120 | normal | Entregue ao Windows em 0,95 s (22:06:28.188 → 22:06:29.142); saiu da fila antes da 1ª leitura com a impressora pronta: `impresso` / `status_impressora` | criada 22:06:28 → entregue 22:06:29 → impresso 22:06:31 |
+| 128122 | `JV_ENSAIO_TRAVAR_IMPRESSAO=1` | Filho pid 17364 congelou em `PRINT_SENDING` às 22:06:38.166; `PRINT_TIMEOUT` às 22:07:13.097; fora da fila: `erro` etapa `travou`, `POST` às 22:07:13.967 (**36,1 s**) | criada 22:06:38 → entregue 22:06:38 → erro 22:07:14 "Impressora: impressora travou: sem resposta do Windows em 35 s"; `filaprint.status=3`, `tentativas=1`, **sem nova entrega** |
+| 128124 | mandada 6 s depois da 128122 | Começou às 22:07:14.371, **0,4 s depois do erro**, num filho novo (pid 49168); entregue em 0,8 s: `impresso` / `status_impressora` | criada 22:06:44 → entregue 22:07:15 → impresso 22:07:17 |
+
+Papel esperado: **2 recibos**, um da 128120 e um da 128124. A 128122 nunca chegou à fila do Windows
+(filho morto antes do print), e a fila ficou vazia no fim. Nenhuma via teve 2 entregas. As vias
+128121/128123/128125 são só os registros de item que o `sendPrint .../all` grava como já impressos
+(status 2, sem entrega). O papel físico quem confirma é quem estava ao lado da impressora: o Windows
+só prova que entregou.
 
 ## Riscos e o que fica de fora
 
