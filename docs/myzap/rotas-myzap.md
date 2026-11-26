@@ -1,5 +1,7 @@
 # Rotas e Endpoints — Modulo MyZap
 
+> Referência das rotas HTTP do módulo MyZap. Movido de `docs/ROTAS_MYZAP.md` em 25/11/2026 (conteúdo sem revisão).
+
 Documentacao de todas as rotas HTTP usadas pelo modulo MyZap integrado ao Gerenciador de Impressao.
 
 ---
